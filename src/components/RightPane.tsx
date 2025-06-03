@@ -1,9 +1,10 @@
 
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Clock, FileText } from 'lucide-react';
+import { Clock, FileText, Timeline } from 'lucide-react';
 import TimelineTab from './TimelineTab';
 import SummarizationTab from './SummarizationTab';
+import AnalysisTab from './AnalysisTab';
 
 interface RightPaneProps {
   selectedPdf: string | null;
@@ -26,6 +27,10 @@ const RightPane = ({ selectedPdf, uploadedFiles }: RightPaneProps) => {
             <Clock className="w-4 h-4" />
             Timeline
           </TabsTrigger>
+          <TabsTrigger value="analysis" className="flex items-center gap-2">
+            <Timeline className="w-4 h-4" />
+            Analysis
+          </TabsTrigger>
           <TabsTrigger value="summaries" className="flex items-center gap-2">
             <FileText className="w-4 h-4" />
             Summaries
@@ -34,6 +39,10 @@ const RightPane = ({ selectedPdf, uploadedFiles }: RightPaneProps) => {
         
         <TabsContent value="timeline" className="h-full m-0">
           <TimelineTab uploadedFiles={uploadedFiles} selectedPdf={selectedPdf} />
+        </TabsContent>
+        
+        <TabsContent value="analysis" className="h-full m-0">
+          <AnalysisTab uploadedFiles={uploadedFiles} />
         </TabsContent>
         
         <TabsContent value="summaries" className="h-full m-0">
