@@ -71,10 +71,10 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
   ];
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Chat Messages */}
-      <ScrollArea className="flex-1 p-4">
-        <div className="space-y-4">
+    <div className="h-full flex flex-col p-4">
+      {/* Chat Messages - takes available space */}
+      <ScrollArea className="flex-1 mb-4">
+        <div className="space-y-4 pr-4">
           {messages.map((message) => (
             <div
               key={message.id}
@@ -118,9 +118,9 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
         </div>
       </ScrollArea>
 
-      {/* Suggested Queries */}
+      {/* Suggested Queries - fixed height */}
       {uploadedFiles.length > 0 && (
-        <div className="p-4 border-t border-slate-200">
+        <div className="mb-4">
           <p className="text-xs text-slate-600 mb-2">Suggested queries:</p>
           <div className="flex flex-wrap gap-2">
             {suggestedQueries.map((query, index) => (
@@ -138,8 +138,8 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
         </div>
       )}
 
-      {/* Input Area */}
-      <div className="p-4 border-t border-slate-200">
+      {/* Input Area - fixed at bottom */}
+      <div className="flex-shrink-0">
         <div className="flex space-x-2">
           <Input
             value={inputValue}
