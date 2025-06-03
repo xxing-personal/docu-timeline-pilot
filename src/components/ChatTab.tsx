@@ -71,56 +71,58 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
   ];
 
   return (
-    <div className="h-full flex flex-col p-4">
-      {/* Chat Messages - takes available space */}
-      <ScrollArea className="flex-1 mb-4">
-        <div className="space-y-4 pr-4">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.isUser ? 'justify-end' : 'justify-start'}`}
-            >
+    <div className="h-[calc(100vh-200px)] flex flex-col p-4">
+      {/* Chat Messages - takes most of the space */}
+      <div className="flex-1 min-h-0">
+        <ScrollArea className="h-full">
+          <div className="space-y-4 pr-4">
+            {messages.map((message) => (
               <div
-                className={`flex max-w-[80%] ${
-                  message.isUser ? 'flex-row-reverse' : 'flex-row'
-                } items-start space-x-2`}
+                key={message.id}
+                className={`flex ${message.isUser ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                    message.isUser ? 'bg-blue-500 ml-2' : 'bg-slate-200 mr-2'
-                  }`}
+                  className={`flex max-w-[80%] ${
+                    message.isUser ? 'flex-row-reverse' : 'flex-row'
+                  } items-start space-x-2`}
                 >
-                  {message.isUser ? (
-                    <User className="w-4 h-4 text-white" />
-                  ) : (
-                    <Bot className="w-4 h-4 text-slate-600" />
-                  )}
-                </div>
-                <Card
-                  className={`p-3 ${
-                    message.isUser
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-white border border-slate-200'
-                  }`}
-                >
-                  <p className="text-sm">{message.content}</p>
-                  <p
-                    className={`text-xs mt-1 ${
-                      message.isUser ? 'text-blue-100' : 'text-slate-500'
+                  <div
+                    className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                      message.isUser ? 'bg-blue-500 ml-2' : 'bg-slate-200 mr-2'
                     }`}
                   >
-                    {message.timestamp.toLocaleTimeString()}
-                  </p>
-                </Card>
+                    {message.isUser ? (
+                      <User className="w-4 h-4 text-white" />
+                    ) : (
+                      <Bot className="w-4 h-4 text-slate-600" />
+                    )}
+                  </div>
+                  <Card
+                    className={`p-3 ${
+                      message.isUser
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-white border border-slate-200'
+                    }`}
+                  >
+                    <p className="text-sm">{message.content}</p>
+                    <p
+                      className={`text-xs mt-1 ${
+                        message.isUser ? 'text-blue-100' : 'text-slate-500'
+                      }`}
+                    >
+                      {message.timestamp.toLocaleTimeString()}
+                    </p>
+                  </Card>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </ScrollArea>
+            ))}
+          </div>
+        </ScrollArea>
+      </div>
 
-      {/* Suggested Queries - fixed height */}
+      {/* Suggested Queries - compact */}
       {uploadedFiles.length > 0 && (
-        <div className="mb-4">
+        <div className="py-3">
           <p className="text-xs text-slate-600 mb-2">Suggested queries:</p>
           <div className="flex flex-wrap gap-2">
             {suggestedQueries.map((query, index) => (
@@ -138,8 +140,8 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
         </div>
       )}
 
-      {/* Input Area - fixed at bottom */}
-      <div className="flex-shrink-0">
+      {/* Input Area - fixed at bottom with proper spacing */}
+      <div className="pt-3 border-t border-slate-200">
         <div className="flex space-x-2">
           <Input
             value={inputValue}
