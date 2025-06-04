@@ -1,10 +1,9 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { FileText, Calendar, Clock, ChevronDown, ChevronRight } from 'lucide-react';
+import { FileText, Calendar, Clock, ChevronDown, ChevronRight, BarChart2 } from 'lucide-react';
 
 interface AnalysisTabProps {
   uploadedFiles: File[];
@@ -90,7 +89,7 @@ const AnalysisTab = ({ uploadedFiles }: AnalysisTabProps) => {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center max-w-md px-6">
-          <Timeline className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+          <BarChart2 className="w-12 h-12 text-slate-400 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-slate-700 mb-2">No Documents for Analysis</h3>
           <p className="text-sm text-slate-500">
             Upload PDF documents to see event timeline analysis with document insights and tone changes.
