@@ -13,10 +13,14 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "express": "^5.1.0"
+    "@types/cors": "^2.8.18",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "multer": "^2.0.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.2",
+    "@types/multer": "^1.4.12",
     "@types/node": "^22.15.30",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"
