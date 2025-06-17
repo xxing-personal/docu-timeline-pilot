@@ -123,9 +123,24 @@ export class PDFQueueService {
     return await this.taskRepository.findById(taskId);
   }
 
-  // Get all tasks
+  // Get all tasks (sorted by display order when available)
   async getAllTasks(): Promise<PDFTask[]> {
-    return await this.taskRepository.findAll();
+    const tasks = await this.taskRepository.findAll();
+    
+    // Sort by displayOrder if available, otherwise by createdAt
+    return tasks.sort((a, b) => {
+      if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
+        return a.displayOrder - b.displayOrder;
+      }
+      if (a.displayOrder !== undefined && b.displayOrder === undefined) {
+        return -1;
+      }
+      if (a.displayOrder === undefined && b.displayOrder !== undefined) {
+        return 1;
+      }
+      // Both undefined, sort by creation date
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
   }
 
   // Get tasks by status
@@ -193,6 +208,88 @@ export class PDFQueueService {
     }
     
     return await this.taskRepository.delete(taskId);
+  }
+
+  // Reorder tasks in the queue (affects pending tasks) and display order (for all reorderable tasks)
+  async reorderTasks(taskIds: string[]): Promise<boolean> {
+    try {
+      // Get all current tasks
+      const allTasks = await this.taskRepository.findAll();
+      
+      // Validate that all provided task IDs exist
+      const validTaskIds = allTasks.map(task => task.id);
+      const invalidIds = taskIds.filter(id => !validTaskIds.includes(id));
+      
+      if (invalidIds.length > 0) {
+        console.error('Invalid task IDs:', invalidIds);
+        return false;
+      }
+      
+      // Update display order for all reorderable tasks (pending, processing, completed)
+      const updatedTasks = [];
+      for (let i = 0; i < taskIds.length; i++) {
+        const taskId = taskIds[i];
+        const task = allTasks.find(t => t.id === taskId);
+        if (task && task.status !== 'failed') { // Don't reorder failed tasks
+          // Update the display order in the database
+          await this.taskRepository.update(taskId, { displayOrder: i });
+          updatedTasks.push({ ...task, displayOrder: i });
+        }
+      }
+      
+      // Handle pending tasks - reorder them in the actual processing queue
+      const pendingTasks = allTasks.filter(task => task.status === 'pending');
+      const pendingTaskIds = pendingTasks.map(task => task.id);
+      
+      // Filter taskIds to only include pending tasks for queue reordering
+      const reorderedPendingIds = taskIds.filter(id => pendingTaskIds.includes(id));
+      
+      if (reorderedPendingIds.length > 0) {
+        // Clear the current queue of pending tasks
+        this.pdfQueue.kill();
+        
+        // Recreate the queue with the same concurrency
+        const currentConcurrency = this.pdfQueue.concurrency;
+        this.pdfQueue = async.queue<PDFTask>(async (task: PDFTask) => {
+          await this.processTask(task);
+        }, currentConcurrency);
+        
+        // Re-add event listeners
+        this.pdfQueue.error((error, task) => {
+          console.error('Queue error for task:', task?.id, error);
+        });
+
+        this.pdfQueue.drain(() => {
+          console.log('All PDF processing tasks completed');
+        });
+        
+        // Add pending tasks back to queue in the new order
+        for (const taskId of reorderedPendingIds) {
+          const task = allTasks.find(t => t.id === taskId);
+          if (task) {
+            this.pdfQueue.push(task);
+          }
+        }
+        
+        console.log(`Reordered ${reorderedPendingIds.length} pending tasks in processing queue`);
+      }
+      
+      // Note: Processing tasks are not reordered in the queue since they're actively being processed
+      // But their display order is updated for UI purposes
+      const processingTasks = allTasks.filter(task => task.status === 'processing');
+      const reorderedProcessingIds = taskIds.filter(id => processingTasks.some(t => t.id === id));
+      
+      if (reorderedProcessingIds.length > 0) {
+        console.log(`Updated display order for ${reorderedProcessingIds.length} processing tasks (not interrupting active processing)`);
+      }
+      
+      console.log(`Updated display order for ${updatedTasks.length} total tasks`);
+      return true;
+      
+    } catch (error) {
+      console.error('Error reordering tasks:', error);
+      return false;
+    }
   }
 
   // Health check

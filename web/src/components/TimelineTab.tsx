@@ -2,8 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Clock, CheckCircle2, AlertCircle, Eye, Loader2, RefreshCw } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, AlertCircle, Eye, Loader2, RefreshCw, GripVertical } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import {
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface PdfTask {
   id: string;
@@ -14,6 +33,7 @@ interface PdfTask {
   completedAt?: string;
   error?: string;
   hasResult?: boolean;
+  displayOrder?: number;
 }
 
 interface TasksResponse {
@@ -30,9 +50,130 @@ interface TimelineTabProps {
 
 const API_BASE_URL = 'http://localhost:3000';
 
+// Sortable task item component
+interface SortableTaskItemProps {
+  task: PdfTask;
+  isSelected: boolean;
+  onSelect: (filename: string) => void;
+  formatDate: (dateString: string) => string;
+  getStatusIcon: (status: string) => JSX.Element;
+  getStatusColor: (status: string) => string;
+  getProcessingEvents: (task: PdfTask) => any[];
+}
+
+const SortableTaskItem = ({ 
+  task, 
+  isSelected, 
+  onSelect, 
+  formatDate, 
+  getStatusIcon, 
+  getStatusColor, 
+  getProcessingEvents 
+}: SortableTaskItemProps) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const events = getProcessingEvents(task);
+  const canReorder = task.status === 'pending' || task.status === 'completed' || task.status === 'processing'; // Allow reordering of pending, completed, and processing tasks
+
+  return (
+    <div ref={setNodeRef} style={style} className="relative">
+      {/* Timeline Node */}
+      <div className={`absolute left-6 w-4 h-4 rounded-full border-2 bg-white ${
+        isSelected ? 'border-blue-500' : 'border-slate-300'
+      }`}>
+        <div className={`absolute inset-1 rounded-full ${
+          task.status === 'completed' ? 'bg-green-500' :
+          task.status === 'processing' ? 'bg-blue-500' :
+          task.status === 'failed' ? 'bg-red-500' :
+          'bg-yellow-500'
+        }`}></div>
+      </div>
+      
+      {/* Document Card */}
+      <Card className={`ml-16 p-4 hover:shadow-md transition-all ${
+        isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : ''
+      } ${isDragging ? 'shadow-lg' : ''}`}>
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center space-x-3">
+            {canReorder && (
+              <div 
+                className="cursor-grab active:cursor-grabbing p-1 hover:bg-slate-100 rounded"
+                {...attributes}
+                {...listeners}
+              >
+                <GripVertical className="w-4 h-4 text-slate-400" />
+              </div>
+            )}
+            <FileText className="w-5 h-5 text-red-500" />
+            <div>
+              <h4 className="font-medium text-slate-900">{task.filename}</h4>
+              <p className="text-sm text-slate-500">
+                Uploaded {formatDate(task.createdAt)}
+              </p>
+            </div>
+          </div>
+          <Badge variant="outline" className={getStatusColor(task.status)}>
+            {getStatusIcon(task.status)}
+            <span className="ml-1 capitalize">{task.status}</span>
+          </Badge>
+        </div>
+        
+        {/* Processing Events */}
+        <div className="space-y-2 mb-3">
+          {events.map((event, index) => (
+            <div key={index} className={`flex items-center space-x-2 text-sm ${
+              event.completed ? 'text-slate-600' : 'text-slate-500'
+            }`}>
+              {event.icon}
+              <span>{event.text}</span>
+            </div>
+          ))}
+        </div>
+        
+        <div className="flex space-x-2">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => onSelect(task.filename)}
+          >
+            <Eye className="w-3 h-3 mr-1" />
+            View PDF
+          </Button>
+          {task.status === 'completed' && task.hasResult && (
+            <Button variant="outline" size="sm">
+              View Summary
+            </Button>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+};
+
 const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTabProps) => {
   const [tasks, setTasks] = useState<PdfTask[]>([]);
   const [loading, setLoading] = useState(false);
+  const [reordering, setReordering] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Fetch all tasks on component mount and periodically refresh
   useEffect(() => {
@@ -55,6 +196,58 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
       console.error('Error fetching tasks:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    // Find the tasks being moved
+    const oldIndex = tasks.findIndex(task => task.id === active.id);
+    const newIndex = tasks.findIndex(task => task.id === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) {
+      return;
+    }
+
+    // Only allow reordering of pending, completed, and processing tasks (not failed)
+    const activeTask = tasks[oldIndex];
+    if (activeTask.status !== 'pending' && activeTask.status !== 'completed' && activeTask.status !== 'processing') {
+      return;
+    }
+
+    // Optimistically update the UI
+    const reorderedTasks = arrayMove(tasks, oldIndex, newIndex);
+    setTasks(reorderedTasks);
+
+    // Send reorder request to backend
+    try {
+      setReordering(true);
+      const taskIds = reorderedTasks.map(task => task.id);
+      
+      const response = await fetch(`${API_BASE_URL}/tasks/reorder`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ taskIds }),
+      });
+
+      if (!response.ok) {
+        // Revert the optimistic update on failure
+        setTasks(tasks);
+        console.error('Failed to reorder tasks');
+      }
+    } catch (error) {
+      // Revert the optimistic update on error
+      setTasks(tasks);
+      console.error('Error reordering tasks:', error);
+    } finally {
+      setReordering(false);
     }
   };
 
@@ -171,16 +364,18 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
       <div className="mb-6 flex justify-between items-center">
         <div>
           <h3 className="text-lg font-semibold text-slate-800 mb-2">Document Processing Timeline</h3>
-          <p className="text-sm text-slate-600">Track the processing status of your uploaded documents</p>
+          <p className="text-sm text-slate-600">
+            Track the processing status of your uploaded documents. Drag tasks to reorder them (except failed tasks).
+          </p>
         </div>
         <Button 
           variant="outline" 
           size="sm" 
           onClick={fetchTasks}
-          disabled={loading}
+          disabled={loading || reordering}
         >
-          <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
+          <RefreshCw className={`w-4 h-4 mr-1 ${loading || reordering ? 'animate-spin' : ''}`} />
+          {reordering ? 'Reordering...' : 'Refresh'}
         </Button>
       </div>
 
@@ -191,77 +386,35 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
             <div className="absolute left-8 top-8 bottom-8 w-0.5 bg-slate-200"></div>
           )}
           
-          <div className="space-y-6">
-            {tasks.map((task) => {
-              const isSelected = selectedPdf === task.filename;
-              const events = getProcessingEvents(task);
-              
-              return (
-                <div key={task.id} className="relative">
-                  {/* Timeline Node */}
-                  <div className={`absolute left-6 w-4 h-4 rounded-full border-2 bg-white ${
-                    isSelected ? 'border-blue-500' : 'border-slate-300'
-                  }`}>
-                    <div className={`absolute inset-1 rounded-full ${
-                      task.status === 'completed' ? 'bg-green-500' :
-                      task.status === 'processing' ? 'bg-blue-500' :
-                      task.status === 'failed' ? 'bg-red-500' :
-                      'bg-yellow-500'
-                    }`}></div>
-                  </div>
+          <DndContext 
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext 
+              items={tasks.map(task => task.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-6">
+                {tasks.map((task) => {
+                  const isSelected = selectedPdf === task.filename;
                   
-                  {/* Document Card */}
-                  <Card className={`ml-16 p-4 hover:shadow-md transition-all ${
-                    isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : ''
-                  }`}>
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center space-x-3">
-                        <FileText className="w-5 h-5 text-red-500" />
-                        <div>
-                          <h4 className="font-medium text-slate-900">{task.filename}</h4>
-                          <p className="text-sm text-slate-500">
-                            Uploaded {formatDate(task.createdAt)}
-                          </p>
-                        </div>
-                      </div>
-                      <Badge variant="outline" className={getStatusColor(task.status)}>
-                        {getStatusIcon(task.status)}
-                        <span className="ml-1 capitalize">{task.status}</span>
-                      </Badge>
-                    </div>
-                    
-                    {/* Processing Events */}
-                    <div className="space-y-2 mb-3">
-                      {events.map((event, index) => (
-                        <div key={index} className={`flex items-center space-x-2 text-sm ${
-                          event.completed ? 'text-slate-600' : 'text-slate-500'
-                        }`}>
-                          {event.icon}
-                          <span>{event.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                    
-                    <div className="flex space-x-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => setSelectedPdf && setSelectedPdf(task.filename)}
-                      >
-                        <Eye className="w-3 h-3 mr-1" />
-                        View PDF
-                      </Button>
-                      {task.status === 'completed' && task.hasResult && (
-                        <Button variant="outline" size="sm">
-                          View Summary
-                        </Button>
-                      )}
-                    </div>
-                  </Card>
-                </div>
-              );
-            })}
-          </div>
+                  return (
+                    <SortableTaskItem
+                      key={task.id}
+                      task={task}
+                      isSelected={isSelected}
+                      onSelect={(filename) => setSelectedPdf && setSelectedPdf(filename)}
+                      formatDate={formatDate}
+                      getStatusIcon={getStatusIcon}
+                      getStatusColor={getStatusColor}
+                      getProcessingEvents={getProcessingEvents}
+                    />
+                  );
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
         </div>
       </ScrollArea>
 

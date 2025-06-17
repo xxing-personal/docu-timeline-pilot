@@ -315,6 +315,32 @@ app.delete('/tasks/:taskId', async (req, res) => {
   }
 });
 
+// Reorder tasks endpoint
+app.post('/tasks/reorder', async (req, res) => {
+  try {
+    const { taskIds } = req.body as { taskIds: string[] };
+    
+    if (!taskIds || !Array.isArray(taskIds)) {
+      res.status(400).json({ error: 'taskIds array is required' });
+      return;
+    }
+    
+    const success = await pdfQueueService.reorderTasks(taskIds);
+    
+    if (success) {
+      res.json({ 
+        message: 'Tasks reordered successfully',
+        taskIds: taskIds
+      });
+    } else {
+      res.status(400).json({ error: 'Failed to reorder tasks' });
+    }
+  } catch (error) {
+    console.error('Reorder tasks error:', error);
+    res.status(500).json({ error: 'Failed to reorder tasks' });
+  }
+});
+
 // Health check endpoint
 app.get('/health', async (req, res) => {
   try {
@@ -348,6 +374,7 @@ app.get('/', (req, res) => {
       deleteFile: 'DELETE /files/:filename',
       clearCompleted: 'DELETE /tasks/completed',
       clearAllTasks: 'DELETE /tasks/all',
+      reorderTasks: 'POST /tasks/reorder',
       queueStats: 'GET /queue/stats',
       health: 'GET /health'
     }

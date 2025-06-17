@@ -10,6 +10,7 @@ export interface PDFTask {
   completedAt?: Date;
   error?: string;
   result?: PDFProcessingResult;
+  displayOrder?: number;
 }
 
 export interface PDFProcessingResult {
