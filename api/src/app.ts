@@ -275,6 +275,30 @@ app.delete('/tasks/completed', async (req, res) => {
   }
 });
 
+// Clear all tasks regardless of status
+app.delete('/tasks/all', async (req, res) => {
+  try {
+    const allTasks = await pdfQueueService.getAllTasks();
+    let clearedCount = 0;
+    
+    // Remove each task individually
+    for (const task of allTasks) {
+      const removed = await pdfQueueService.removeTask(task.id);
+      if (removed) {
+        clearedCount++;
+      }
+    }
+    
+    res.json({ 
+      message: `Cleared ${clearedCount} tasks (all statuses)`,
+      clearedCount: clearedCount
+    });
+  } catch (error) {
+    console.error('Clear all tasks error:', error);
+    res.status(500).json({ error: 'Failed to clear all tasks' });
+  }
+});
+
 app.delete('/tasks/:taskId', async (req, res) => {
   try {
     const taskId = req.params.taskId;
@@ -322,6 +346,8 @@ app.get('/', (req, res) => {
       allTasks: 'GET /status',
       files: 'GET /files',
       deleteFile: 'DELETE /files/:filename',
+      clearCompleted: 'DELETE /tasks/completed',
+      clearAllTasks: 'DELETE /tasks/all',
       queueStats: 'GET /queue/stats',
       health: 'GET /health'
     }
