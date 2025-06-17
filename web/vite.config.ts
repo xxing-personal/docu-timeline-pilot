@@ -19,4 +19,11 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "src"),
     },
   },
+  optimizeDeps: {
+    include: ['pdfjs-dist'],
+  },
+  assetsInclude: ['**/*.pdf'],
+  worker: {
+    format: 'es'
+  }
 })); 

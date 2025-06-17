@@ -179,6 +179,48 @@ app.get('/files', async (req, res) => {
   }
 });
 
+// Serve individual PDF files
+app.get('/files/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(uploadDir, filename);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+    
+    // Check if file is a PDF
+    if (!filename.toLowerCase().endsWith('.pdf')) {
+      res.status(400).json({ error: 'Only PDF files are supported' });
+      return;
+    }
+    
+    // Set appropriate headers for PDF with CORS
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    
+    // Stream the PDF file
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.on('error', (error) => {
+      console.error('File stream error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to read file' });
+      }
+    });
+    fileStream.pipe(res);
+    
+  } catch (error) {
+    console.error('Serve file error:', error);
+    res.status(500).json({ error: 'Failed to serve file' });
+  }
+});
+
 // Delete a specific file from uploads folder
 app.delete('/files/:filename', async (req, res) => {
   try {
@@ -393,6 +435,7 @@ app.get('/', (req, res) => {
       status: 'GET /status/:taskId',
       allTasks: 'GET /status',
       files: 'GET /files',
+      viewFile: 'GET /files/:filename',
       deleteFile: 'DELETE /files/:filename',
       clearCompleted: 'DELETE /tasks/completed',
       clearAllTasks: 'DELETE /tasks/all',
