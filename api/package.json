@@ -26,6 +26,7 @@
     "@types/lowdb": "^1.0.15",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.15.30",
+    "concurrently": "^9.1.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"
   }

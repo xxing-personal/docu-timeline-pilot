@@ -45,30 +45,44 @@ const upload = multer({
 });
 
 // Enhanced upload endpoint with queue integration
-app.post('/upload', upload.single('pdf'), async (req, res) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No file uploaded or file is not a PDF.' });
+app.post('/upload', upload.array('pdf', 10), async (req, res) => {
+  if (!req.files || req.files.length === 0) {
+    res.status(400).json({ error: 'No files uploaded or files are not PDFs.' });
     return;
   }
 
   try {
-    // Add task to queue (includes PDF validation)
-    const taskId = await pdfQueueService.addTask(req.file.filename, req.file.path);
+    const files = req.files as Express.Multer.File[];
+    const results = [];
+    
+    // Add each file to queue
+    for (const file of files) {
+      const taskId = await pdfQueueService.addTask(file.filename, file.path);
+      results.push({
+        taskId,
+        filename: file.filename,
+        status: 'pending'
+      });
+    }
+    
     const queueStats = await pdfQueueService.getQueueStats();
     
     res.json({
-      message: 'PDF uploaded successfully and queued for processing!',
-      taskId: taskId,
-      filename: req.file.filename,
-      queueLength: queueStats.queue.length,
-      status: 'pending'
+      message: `${files.length} PDF(s) uploaded successfully and queued for processing!`,
+      files: results,
+      queueLength: queueStats.queue.length
     });
   } catch (error) {
     console.error('Upload error:', error);
     
-    // Clean up uploaded file if task creation failed
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // Clean up uploaded files if task creation failed
+    if (req.files) {
+      const files = req.files as Express.Multer.File[];
+      files.forEach(file => {
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      });
     }
     
     res.status(500).json({ 
@@ -133,6 +147,60 @@ app.get('/status', async (req, res) => {
   } catch (error) {
     console.error('Get all tasks error:', error);
     res.status(500).json({ error: 'Failed to get tasks' });
+  }
+});
+
+// Get all uploaded files in uploads folder
+app.get('/files', async (req, res) => {
+  try {
+    const files = fs.readdirSync(uploadDir).filter(file => file.endsWith('.pdf'));
+    const fileDetails = files.map(filename => {
+      const filePath = path.join(uploadDir, filename);
+      const stats = fs.statSync(filePath);
+      
+      return {
+        filename,
+        size: stats.size,
+        uploadedAt: stats.birthtime.toISOString(),
+        modifiedAt: stats.mtime.toISOString()
+      };
+    });
+    
+    // Sort by upload date (newest first)
+    fileDetails.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+    
+    res.json({
+      files: fileDetails,
+      total: fileDetails.length
+    });
+  } catch (error) {
+    console.error('List files error:', error);
+    res.status(500).json({ error: 'Failed to list files' });
+  }
+});
+
+// Delete a specific file from uploads folder
+app.delete('/files/:filename', async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(uploadDir, filename);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+    
+    // Delete the file
+    fs.unlinkSync(filePath);
+    
+    res.json({ 
+      message: 'File deleted successfully',
+      filename: filename
+    });
+  } catch (error) {
+    console.error('Delete file error:', error);
+    res.status(500).json({ error: 'Failed to delete file' });
   }
 });
 
@@ -252,6 +320,8 @@ app.get('/', (req, res) => {
       upload: 'POST /upload',
       status: 'GET /status/:taskId',
       allTasks: 'GET /status',
+      files: 'GET /files',
+      deleteFile: 'DELETE /files/:filename',
       queueStats: 'GET /queue/stats',
       health: 'GET /health'
     }

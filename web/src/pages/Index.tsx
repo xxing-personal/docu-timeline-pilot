@@ -21,10 +21,11 @@ const Index = () => {
         </ResizablePanel>
         <ResizableHandle className="w-2 bg-slate-200 hover:bg-slate-300 transition-colors" />
         <ResizablePanel defaultSize={62} minSize={50}>
-          <RightPane 
-            selectedPdf={selectedPdf}
-            uploadedFiles={uploadedFiles}
-          />
+                  <RightPane 
+          selectedPdf={selectedPdf}
+          uploadedFiles={uploadedFiles}
+          setSelectedPdf={setSelectedPdf}
+        />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

@@ -8,9 +8,10 @@ import AnalysisTab from './AnalysisTab';
 interface RightPaneProps {
   selectedPdf: string | null;
   uploadedFiles: File[];
+  setSelectedPdf: (pdf: string | null) => void;
 }
 
-const RightPane = ({ selectedPdf, uploadedFiles }: RightPaneProps) => {
+const RightPane = ({ selectedPdf, uploadedFiles, setSelectedPdf }: RightPaneProps) => {
   const [activeTab, setActiveTab] = useState('timeline');
 
   return (
@@ -37,7 +38,7 @@ const RightPane = ({ selectedPdf, uploadedFiles }: RightPaneProps) => {
         </TabsList>
         
         <TabsContent value="timeline" className="h-full m-0">
-          <TimelineTab uploadedFiles={uploadedFiles} selectedPdf={selectedPdf} />
+          <TimelineTab uploadedFiles={uploadedFiles} selectedPdf={selectedPdf} setSelectedPdf={setSelectedPdf} />
         </TabsContent>
         
         <TabsContent value="analysis" className="h-full m-0">
