@@ -341,6 +341,28 @@ app.post('/tasks/reorder', async (req, res) => {
   }
 });
 
+// Get current task order endpoint
+app.get('/tasks/order', async (req, res) => {
+  try {
+    const orderedTasks = await pdfQueueService.getAllTasks();
+    
+    res.json({
+      tasks: orderedTasks.map(task => ({
+        id: task.id,
+        filename: task.filename,
+        status: task.status,
+        displayOrder: task.displayOrder,
+        createdAt: task.createdAt
+      })),
+      totalTasks: orderedTasks.length,
+      message: 'Tasks returned in current display order'
+    });
+  } catch (error) {
+    console.error('Get task order error:', error);
+    res.status(500).json({ error: 'Failed to get task order' });
+  }
+});
+
 // Health check endpoint
 app.get('/health', async (req, res) => {
   try {
@@ -375,6 +397,7 @@ app.get('/', (req, res) => {
       clearCompleted: 'DELETE /tasks/completed',
       clearAllTasks: 'DELETE /tasks/all',
       reorderTasks: 'POST /tasks/reorder',
+      taskOrder: 'GET /tasks/order',
       queueStats: 'GET /queue/stats',
       health: 'GET /health'
     }

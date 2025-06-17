@@ -199,6 +199,23 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
     }
   };
 
+  const fetchTaskOrder = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/order`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Current task order:', data);
+        return data.tasks;
+      } else {
+        console.error('Failed to fetch task order');
+        return null;
+      }
+    } catch (error) {
+      console.error('Error fetching task order:', error);
+      return null;
+    }
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
 
