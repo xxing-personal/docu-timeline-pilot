@@ -6,6 +6,7 @@ import { FileText, ZoomIn, ZoomOut, Download, Search, RotateCw, ChevronLeft, Che
 import { Input } from "@/components/ui/input";
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
+import { getApiBaseUrl } from "@/lib/utils";
 
 // Configure PDF.js worker - use local worker file
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
@@ -24,7 +25,7 @@ const PdfViewerTab = ({ selectedPdf }: PdfViewerTabProps) => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const API_BASE_URL = 'http://localhost:3000';
+  const API_BASE_URL = getApiBaseUrl();
 
   const onDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
     setNumPages(numPages);

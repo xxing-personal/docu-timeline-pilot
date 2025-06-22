@@ -1,24 +1,20 @@
 import async from 'async';
 import { PDFTask, QueueStats, TaskStats } from '../types';
-import { TaskRepository } from '../repositories/taskRepository';
 import { PDFProcessor } from './pdfProcessor';
 
 export class PDFQueueService {
   private pdfQueue: async.QueueObject<PDFTask>;
-  private taskRepository: TaskRepository;
   private pdfProcessor: PDFProcessor;
+  private tasks: Map<string, PDFTask> = new Map();
+  private taskOrder: string[] = [];
 
-  constructor(
-    taskRepository: TaskRepository,
-    pdfProcessor: PDFProcessor,
-    concurrency: number = 1
-  ) {
-    this.taskRepository = taskRepository;
+  constructor(pdfProcessor: PDFProcessor, concurrency: number = 1) {
     this.pdfProcessor = pdfProcessor;
     
     // Create PDF processing queue with specified concurrency
     this.pdfQueue = async.queue<PDFTask>(async (task: PDFTask) => {
-      await this.processTask(task);
+      const result = await this.processTask(task);
+      return result;
     }, concurrency);
 
     // Queue event listeners for monitoring
@@ -31,59 +27,61 @@ export class PDFQueueService {
     });
   }
 
-  // Initialize service and restore pending tasks from database
+  // Initialize service (no longer needs database)
   async init(): Promise<void> {
-    await this.taskRepository.init();
-    
-    // Restore pending tasks to queue after server restart
-    const pendingTasks = await this.taskRepository.findByStatus('pending');
-    for (const task of pendingTasks) {
-      this.pdfQueue.push(task);
-    }
-    
-    // Reset any tasks that were processing when server stopped
-    const processingTasks = await this.taskRepository.findByStatus('processing');
-    for (const task of processingTasks) {
-      await this.taskRepository.update(task.id, { status: 'pending' });
-      this.pdfQueue.push({ ...task, status: 'pending' });
-    }
-    
-    console.log(`Restored ${pendingTasks.length + processingTasks.length} tasks to queue`);
+    // Nothing to initialize for in-memory queue
+    console.log('PDF queue service initialized (in-memory)');
   }
 
   // Process a single task
-  private async processTask(task: PDFTask): Promise<void> {
-    console.log(`Starting to process PDF: ${task.filename}`);
+  private async processTask(task: PDFTask): Promise<PDFTask | undefined> {
+    console.log(`Starting to process PDF: ${task.filename} (ID: ${task.id})`);
     
     try {
       // Update status to processing
-      await this.taskRepository.update(task.id, {
-        status: 'processing',
-        startedAt: new Date()
-      });
+      const processingTask = this.updateTaskStatus(task.id, 'processing', { startedAt: new Date() });
       
-      // Process the PDF using the processor service
+      console.log(`Task ${task.id} is now in 'processing' state - beginning PDF content extraction`);
+      
+      // Process the PDF
       const result = await this.pdfProcessor.process(task);
       
       // Update task with completion
-      await this.taskRepository.update(task.id, {
-        status: 'completed',
+      const completedTask = this.updateTaskStatus(task.id, 'completed', {
         completedAt: new Date(),
         result: result
       });
       
-      console.log(`Successfully processed PDF: ${task.filename}`);
+      console.log(`Successfully processed PDF: ${task.filename} (${result.pageCount} pages, ${result.metadata?.textLength || 0} chars)`);
+      
+      return completedTask;
       
     } catch (error) {
       console.error(`Failed to process PDF: ${task.filename}`, error);
       
       // Update task with failure
-      await this.taskRepository.update(task.id, {
-        status: 'failed',
+      const failedTask = this.updateTaskStatus(task.id, 'failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
         completedAt: new Date()
       });
+      
+      return failedTask;
     }
+  }
+
+  // Helper method to update task status
+  private updateTaskStatus(taskId: string, status: PDFTask['status'], updates: Partial<PDFTask> = {}): PDFTask | undefined {
+    const task = this.tasks.get(taskId);
+    if (task) {
+      const updatedTask = {
+        ...task,
+        status,
+        ...updates
+      };
+      this.tasks.set(taskId, updatedTask);
+      return updatedTask;
+    }
+    return undefined;
   }
 
   // Add a PDF task to the queue
@@ -101,11 +99,13 @@ export class PDFQueueService {
       filename,
       path,
       status: 'pending',
-      createdAt: new Date()
+      createdAt: new Date(),
+      displayOrder: this.taskOrder.length
     };
     
-    // Store task in repository
-    await this.taskRepository.create(pdfTask);
+    // Store task in memory
+    this.tasks.set(taskId, pdfTask);
+    this.taskOrder.push(taskId);
     
     // Add task to processing queue
     this.pdfQueue.push(pdfTask);
@@ -120,37 +120,32 @@ export class PDFQueueService {
 
   // Get task by ID
   async getTask(taskId: string): Promise<PDFTask | undefined> {
-    return await this.taskRepository.findById(taskId);
+    return this.tasks.get(taskId);
   }
 
-  // Get all tasks (sorted by display order when available)
+  // Get all tasks (sorted by display order)
   async getAllTasks(): Promise<PDFTask[]> {
-    const tasks = await this.taskRepository.findAll();
-    
-    // Sort by displayOrder if available, otherwise by createdAt
-    return tasks.sort((a, b) => {
-      if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
-        return a.displayOrder - b.displayOrder;
-      }
-      if (a.displayOrder !== undefined && b.displayOrder === undefined) {
-        return -1;
-      }
-      if (a.displayOrder === undefined && b.displayOrder !== undefined) {
-        return 1;
-      }
-      // Both undefined, sort by creation date
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    });
+    return this.taskOrder
+      .map(id => this.tasks.get(id))
+      .filter((task): task is PDFTask => task !== undefined);
   }
 
   // Get tasks by status
   async getTasksByStatus(status: PDFTask['status']): Promise<PDFTask[]> {
-    return await this.taskRepository.findByStatus(status);
+    return Array.from(this.tasks.values()).filter(task => task.status === status);
   }
 
   // Get comprehensive queue statistics
   async getQueueStats(): Promise<{ queue: QueueStats; tasks: TaskStats }> {
-    const taskStats = await this.taskRepository.getStats();
+    const allTasks = Array.from(this.tasks.values());
+    
+    const taskStats: TaskStats = {
+      total: allTasks.length,
+      pending: allTasks.filter(t => t.status === 'pending').length,
+      processing: allTasks.filter(t => t.status === 'processing').length,
+      completed: allTasks.filter(t => t.status === 'completed').length,
+      failed: allTasks.filter(t => t.status === 'failed').length
+    };
     
     return {
       queue: {
@@ -175,115 +170,132 @@ export class PDFQueueService {
     this.pdfQueue.kill();
   }
 
-  // Set concurrency (both queue and repository)
+  // Set concurrency
   async setConcurrency(concurrency: number): Promise<void> {
     if (concurrency < 1 || concurrency > 10) {
       throw new Error('Concurrency must be between 1 and 10');
     }
     
     this.pdfQueue.concurrency = concurrency;
-    await this.taskRepository.setConcurrency(concurrency);
   }
 
-  // Get concurrency from repository
+  // Get concurrency
   async getConcurrency(): Promise<number> {
-    return await this.taskRepository.getConcurrency();
+    return this.pdfQueue.concurrency;
   }
 
   // Cleanup methods
   async clearCompletedTasks(): Promise<number> {
-    return await this.taskRepository.deleteByStatus(['completed', 'failed']);
+    const completedTasks = Array.from(this.tasks.entries())
+      .filter(([_, task]) => task.status === 'completed' || task.status === 'failed');
+    
+    for (const [taskId, _] of completedTasks) {
+      this.tasks.delete(taskId);
+      const orderIndex = this.taskOrder.indexOf(taskId);
+      if (orderIndex > -1) {
+        this.taskOrder.splice(orderIndex, 1);
+      }
+    }
+    
+    // Update display order for remaining tasks
+    this.taskOrder.forEach((taskId, index) => {
+      const task = this.tasks.get(taskId);
+      if (task) {
+        this.tasks.set(taskId, { ...task, displayOrder: index });
+      }
+    });
+    
+    return completedTasks.length;
+  }
+
+  // Clear all tasks and files
+  async clearAllTasks(): Promise<number> {
+    const taskCount = this.tasks.size;
+    
+    // Kill the queue to stop any running tasks
+    this.pdfQueue.kill();
+    
+    // Clear all tasks
+    this.tasks.clear();
+    this.taskOrder = [];
+    
+    // Recreate the queue
+    this.pdfQueue = async.queue<PDFTask>(async (task: PDFTask) => {
+      const result = await this.processTask(task);
+      return result;
+    }, this.pdfQueue.concurrency);
+    
+    // Re-add event listeners
+    this.pdfQueue.error((error, task) => {
+      console.error('Queue error for task:', task?.id, error);
+    });
+
+    this.pdfQueue.drain(() => {
+      console.log('All PDF processing tasks completed');
+    });
+    
+    return taskCount;
   }
 
   async removeTask(taskId: string): Promise<boolean> {
-    // Remove from queue if it's still pending
-    const task = await this.taskRepository.findById(taskId);
-    if (task?.status === 'pending') {
-      // Remove from in-memory queue (this is tricky with async.queue)
-      // For now, we'll just mark it as failed so it won't be processed
-      await this.taskRepository.update(taskId, { 
-        status: 'failed', 
-        error: 'Task cancelled by user' 
-      });
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      return false;
     }
     
-    return await this.taskRepository.delete(taskId);
+    // Remove from tasks map
+    this.tasks.delete(taskId);
+    
+    // Remove from order array
+    const orderIndex = this.taskOrder.indexOf(taskId);
+    if (orderIndex > -1) {
+      this.taskOrder.splice(orderIndex, 1);
+    }
+    
+    // Update display order for remaining tasks
+    this.taskOrder.forEach((id, index) => {
+      const remainingTask = this.tasks.get(id);
+      if (remainingTask) {
+        this.tasks.set(id, { ...remainingTask, displayOrder: index });
+      }
+    });
+    
+    return true;
   }
 
-  // Reorder tasks in the queue (affects pending tasks) and display order (for all reorderable tasks)
+  // Reorder tasks - only works with completed tasks
   async reorderTasks(taskIds: string[]): Promise<boolean> {
     try {
-      // Get all current tasks
-      const allTasks = await this.taskRepository.findAll();
-      
       // Validate that all provided task IDs exist
-      const validTaskIds = allTasks.map(task => task.id);
-      const invalidIds = taskIds.filter(id => !validTaskIds.includes(id));
-      
+      const invalidIds = taskIds.filter(id => !this.tasks.has(id));
       if (invalidIds.length > 0) {
         console.error('Invalid task IDs:', invalidIds);
         return false;
       }
       
-      // Update display order for all reorderable tasks (pending, processing, completed)
-      const updatedTasks = [];
-      for (let i = 0; i < taskIds.length; i++) {
-        const taskId = taskIds[i];
-        const task = allTasks.find(t => t.id === taskId);
-        if (task && task.status !== 'failed') { // Don't reorder failed tasks
-          // Update the display order in the database
-          await this.taskRepository.update(taskId, { displayOrder: i });
-          updatedTasks.push({ ...task, displayOrder: i });
+      // Check if all tasks are completed
+      const nonCompletedTasks = taskIds
+        .map(id => this.tasks.get(id))
+        .filter((task): task is PDFTask => task !== undefined && task.status !== 'completed');
+      
+      if (nonCompletedTasks.length > 0) {
+        console.error('Cannot reorder tasks that are not completed. Non-completed tasks:', 
+          nonCompletedTasks.map(t => `${t.filename} (${t.status})`));
+        return false;
+      }
+      
+      // Update the task order for completed tasks only
+      this.taskOrder = taskIds;
+      
+      // Update display order for all completed tasks
+      taskIds.forEach((taskId, index) => {
+        const task = this.tasks.get(taskId);
+        if (task && task.status === 'completed') {
+          this.tasks.set(taskId, { ...task, displayOrder: index });
         }
-      }
+      });
       
-      // Handle pending tasks - reorder them in the actual processing queue
-      const pendingTasks = allTasks.filter(task => task.status === 'pending');
-      const pendingTaskIds = pendingTasks.map(task => task.id);
-      
-      // Filter taskIds to only include pending tasks for queue reordering
-      const reorderedPendingIds = taskIds.filter(id => pendingTaskIds.includes(id));
-      
-      if (reorderedPendingIds.length > 0) {
-        // Clear the current queue of pending tasks
-        this.pdfQueue.kill();
-        
-        // Recreate the queue with the same concurrency
-        const currentConcurrency = this.pdfQueue.concurrency;
-        this.pdfQueue = async.queue<PDFTask>(async (task: PDFTask) => {
-          await this.processTask(task);
-        }, currentConcurrency);
-        
-        // Re-add event listeners
-        this.pdfQueue.error((error, task) => {
-          console.error('Queue error for task:', task?.id, error);
-        });
-
-        this.pdfQueue.drain(() => {
-          console.log('All PDF processing tasks completed');
-        });
-        
-        // Add pending tasks back to queue in the new order
-        for (const taskId of reorderedPendingIds) {
-          const task = allTasks.find(t => t.id === taskId);
-          if (task) {
-            this.pdfQueue.push(task);
-          }
-        }
-        
-        console.log(`Reordered ${reorderedPendingIds.length} pending tasks in processing queue`);
-      }
-      
-      // Note: Processing tasks are not reordered in the queue since they're actively being processed
-      // But their display order is updated for UI purposes
-      const processingTasks = allTasks.filter(task => task.status === 'processing');
-      const reorderedProcessingIds = taskIds.filter(id => processingTasks.some(t => t.id === id));
-      
-      if (reorderedProcessingIds.length > 0) {
-        console.log(`Updated display order for ${reorderedProcessingIds.length} processing tasks (not interrupting active processing)`);
-      }
-      
-      console.log(`Updated display order for ${updatedTasks.length} total tasks`);
+      console.log(`Successfully reordered ${taskIds.length} completed tasks`);
       return true;
       
     } catch (error) {

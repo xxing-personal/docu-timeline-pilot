@@ -4,7 +4,7 @@
   "description": "## Project info",
   "main": "eslint.config.js",
   "scripts": {
-    "backend": "cd api && npx ts-node-dev src/app.ts",
+    "backend": "cd api && npx ts-node-dev app.ts",
     "frontend": "cd web && npm run dev",
     "start": "concurrently \"npm run backend\" \"npm run frontend\""
   },

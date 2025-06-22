@@ -16,23 +16,9 @@ export interface PDFTask {
 export interface PDFProcessingResult {
   filename: string;
   processedAt: string;
-  extractedTextPath: string;
+  extractedTextPath: string; // Path to the markdown file containing extracted text
   summary: string;
   pageCount: number;
   fileSize: number;
   metadata?: Record<string, any>;
-}
-
-export interface TaskStats {
-  total: number;
-  pending: number;
-  processing: number;
-  completed: number;
-  failed: number;
-}
-
-export interface QueueStats {
-  length: number;
-  working: number;
-  concurrency: number;
 } 

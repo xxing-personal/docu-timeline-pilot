@@ -9,9 +9,10 @@ interface RightPaneProps {
   selectedPdf: string | null;
   uploadedFiles: File[];
   setSelectedPdf: (pdf: string | null) => void;
+  switchToViewerTab: () => void;
 }
 
-const RightPane = ({ selectedPdf, uploadedFiles, setSelectedPdf }: RightPaneProps) => {
+const RightPane = ({ selectedPdf, uploadedFiles, setSelectedPdf, switchToViewerTab }: RightPaneProps) => {
   const [activeTab, setActiveTab] = useState('timeline');
 
   return (
@@ -38,7 +39,7 @@ const RightPane = ({ selectedPdf, uploadedFiles, setSelectedPdf }: RightPaneProp
         </TabsList>
         
         <TabsContent value="timeline" className="h-full m-0">
-          <TimelineTab uploadedFiles={uploadedFiles} selectedPdf={selectedPdf} setSelectedPdf={setSelectedPdf} />
+          <TimelineTab uploadedFiles={uploadedFiles} selectedPdf={selectedPdf} setSelectedPdf={setSelectedPdf} switchToViewerTab={switchToViewerTab} />
         </TabsContent>
         
         <TabsContent value="analysis" className="h-full m-0">

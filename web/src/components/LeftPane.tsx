@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileText, MessageCircle, Eye } from 'lucide-react';
@@ -11,11 +10,11 @@ interface LeftPaneProps {
   setSelectedPdf: (pdf: string | null) => void;
   uploadedFiles: File[];
   setUploadedFiles: (files: File[]) => void;
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
 }
 
-const LeftPane = ({ selectedPdf, setSelectedPdf, uploadedFiles, setUploadedFiles }: LeftPaneProps) => {
-  const [activeTab, setActiveTab] = useState('pdfs');
-
+const LeftPane = ({ selectedPdf, setSelectedPdf, uploadedFiles, setUploadedFiles, activeTab, setActiveTab }: LeftPaneProps) => {
   return (
     <div className="h-full bg-white border-r border-slate-200 shadow-sm">
       <div className="p-6 border-b border-slate-200">

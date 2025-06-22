@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import LeftPane from '@/components/LeftPane';
@@ -7,6 +6,11 @@ import RightPane from '@/components/RightPane';
 const Index = () => {
   const [selectedPdf, setSelectedPdf] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [leftPaneActiveTab, setLeftPaneActiveTab] = useState('pdfs');
+
+  const switchToViewerTab = () => {
+    setLeftPaneActiveTab('viewer');
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -17,15 +21,18 @@ const Index = () => {
             setSelectedPdf={setSelectedPdf}
             uploadedFiles={uploadedFiles}
             setUploadedFiles={setUploadedFiles}
+            activeTab={leftPaneActiveTab}
+            setActiveTab={setLeftPaneActiveTab}
           />
         </ResizablePanel>
         <ResizableHandle className="w-2 bg-slate-200 hover:bg-slate-300 transition-colors" />
         <ResizablePanel defaultSize={62} minSize={50}>
-                  <RightPane 
-          selectedPdf={selectedPdf}
-          uploadedFiles={uploadedFiles}
-          setSelectedPdf={setSelectedPdf}
-        />
+          <RightPane 
+            selectedPdf={selectedPdf}
+            uploadedFiles={uploadedFiles}
+            setSelectedPdf={setSelectedPdf}
+            switchToViewerTab={switchToViewerTab}
+          />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

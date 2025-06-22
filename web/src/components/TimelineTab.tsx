@@ -33,6 +33,9 @@ interface PdfTask {
   completedAt?: string;
   error?: string;
   hasResult?: boolean;
+  summary?: string;
+  pageCount?: number;
+  fileSize?: number;
   displayOrder?: number;
 }
 
@@ -46,6 +49,7 @@ interface TimelineTabProps {
   uploadedFiles: File[];
   selectedPdf: string | null;
   setSelectedPdf: (pdf: string | null) => void;
+  switchToViewerTab: () => void;
 }
 
 const API_BASE_URL = 'http://localhost:3000';
@@ -59,6 +63,7 @@ interface SortableTaskItemProps {
   getStatusIcon: (status: string) => JSX.Element;
   getStatusColor: (status: string) => string;
   getProcessingEvents: (task: PdfTask) => any[];
+  switchToViewerTab: () => void;
 }
 
 const SortableTaskItem = ({ 
@@ -68,7 +73,8 @@ const SortableTaskItem = ({
   formatDate, 
   getStatusIcon, 
   getStatusColor, 
-  getProcessingEvents 
+  getProcessingEvents,
+  switchToViewerTab
 }: SortableTaskItemProps) => {
   const {
     attributes,
@@ -86,7 +92,7 @@ const SortableTaskItem = ({
   };
 
   const events = getProcessingEvents(task);
-  const canReorder = task.status === 'pending' || task.status === 'completed' || task.status === 'processing'; // Allow reordering of pending, completed, and processing tasks
+  const canReorder = task.status === 'completed'; // Only allow reordering of completed tasks
 
   return (
     <div ref={setNodeRef} style={style} className="relative">
@@ -147,7 +153,10 @@ const SortableTaskItem = ({
           <Button 
             variant="outline" 
             size="sm"
-            onClick={() => onSelect(task.filename)}
+            onClick={() => {
+              onSelect(task.filename);
+              switchToViewerTab();
+            }}
           >
             <Eye className="w-3 h-3 mr-1" />
             View PDF
@@ -163,7 +172,7 @@ const SortableTaskItem = ({
   );
 };
 
-const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTabProps) => {
+const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewerTab }: TimelineTabProps) => {
   const [tasks, setTasks] = useState<PdfTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [reordering, setReordering] = useState(false);
@@ -175,16 +184,18 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
     })
   );
 
-  // Fetch all tasks on component mount and periodically refresh
+  // Fetch all tasks on component mount and auto-refresh every 5 seconds
   useEffect(() => {
-    fetchTasks();
-    const interval = setInterval(fetchTasks, 5000); // Refresh every 5 seconds
+    fetchTasks(false); // Initial load without loading state
+    const interval = setInterval(() => fetchTasks(false), 5000); // Auto-refresh every 5 seconds silently
     return () => clearInterval(interval);
   }, []);
 
-  const fetchTasks = async () => {
+  const fetchTasks = async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       const response = await fetch(`${API_BASE_URL}/status`);
       if (response.ok) {
         const data: TasksResponse = await response.json();
@@ -195,7 +206,9 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
     } catch (error) {
       console.error('Error fetching tasks:', error);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -231,9 +244,9 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
       return;
     }
 
-    // Only allow reordering of pending, completed, and processing tasks (not failed)
+    // Only allow reordering of completed tasks
     const activeTask = tasks[oldIndex];
-    if (activeTask.status !== 'pending' && activeTask.status !== 'completed' && activeTask.status !== 'processing') {
+    if (activeTask.status !== 'completed') {
       return;
     }
 
@@ -364,7 +377,8 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
     return events;
   };
 
-  if (tasks.length === 0 && !loading) {
+  // Show empty state when there are no tasks (regardless of loading state from auto-polling)
+  if (tasks.length === 0) {
     return (
       <div className="h-full flex items-center justify-center p-8">
         <div className="text-center">
@@ -382,13 +396,13 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
         <div>
           <h3 className="text-lg font-semibold text-slate-800 mb-2">Document Processing Timeline</h3>
           <p className="text-sm text-slate-600">
-            Track the processing status of your uploaded documents. Drag tasks to reorder them (except failed tasks).
+            Track the processing status of your uploaded documents. Drag completed tasks to reorder them.
           </p>
         </div>
         <Button 
           variant="outline" 
           size="sm" 
-          onClick={fetchTasks}
+          onClick={() => fetchTasks(true)}
           disabled={loading || reordering}
         >
           <RefreshCw className={`w-4 h-4 mr-1 ${loading || reordering ? 'animate-spin' : ''}`} />
@@ -426,6 +440,7 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
                       getStatusIcon={getStatusIcon}
                       getStatusColor={getStatusColor}
                       getProcessingEvents={getProcessingEvents}
+                      switchToViewerTab={switchToViewerTab}
                     />
                   );
                 })}
@@ -435,11 +450,7 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf }: TimelineTab
         </div>
       </ScrollArea>
 
-      {loading && tasks.length === 0 && (
-        <div className="flex items-center justify-center p-8">
-          <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
-        </div>
-      )}
+
     </div>
   );
 };

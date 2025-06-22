@@ -2,9 +2,10 @@ import React, { useCallback, useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Upload, FileText, Search, MoreVertical, Eye, Trash2, Loader2, RefreshCw } from 'lucide-react';
+import { Upload, FileText, Search, MoreVertical, Eye, Trash2, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { getApiBaseUrl } from "@/lib/utils";
 
 interface UploadedFile {
   filename: string;
@@ -25,13 +26,14 @@ interface PdfsTabProps {
   setSelectedPdf: (pdf: string | null) => void;
 }
 
-const API_BASE_URL = 'http://localhost:3000';
+const API_BASE_URL = getApiBaseUrl();
 
 const PdfsTab = ({ uploadedFiles, setUploadedFiles, selectedPdf, setSelectedPdf }: PdfsTabProps) => {
   const { toast } = useToast();
   const [uploading, setUploading] = useState(false);
   const [serverFiles, setServerFiles] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   // Fetch files from server on component mount
   useEffect(() => {
@@ -175,6 +177,51 @@ const PdfsTab = ({ uploadedFiles, setUploadedFiles, selectedPdf, setSelectedPdf 
     return new Date(dateString).toLocaleDateString();
   };
 
+  const deleteAllFiles = async () => {
+    if (serverFiles.length === 0) return;
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete all ${serverFiles.length} PDF files? This will also clear all associated tasks. This action cannot be undone.`
+    );
+    
+    if (!confirmed) return;
+    
+    try {
+      setDeletingAll(true);
+      
+      const response = await fetch(`${API_BASE_URL}/files`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete all files');
+      }
+
+      const result = await response.json();
+      
+      toast({
+        title: "All files deleted",
+        description: result.message,
+      });
+
+      // Clear the selected PDF since it's been deleted
+      setSelectedPdf(null);
+      
+      // Refresh the file list
+      await fetchServerFiles();
+    } catch (error) {
+      console.error('Error deleting all files:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete all files.",
+        variant: "destructive"
+      });
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   return (
     <div className="p-4 h-full flex flex-col">
       {/* Upload Area */}
@@ -220,20 +267,37 @@ const PdfsTab = ({ uploadedFiles, setUploadedFiles, selectedPdf, setSelectedPdf 
         </div>
       )}
 
-      {/* Header with Refresh Button */}
+      {/* Header with Refresh and Delete All Buttons */}
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-sm font-medium text-slate-700">
           Uploaded Documents ({serverFiles.length})
         </h3>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={fetchServerFiles}
-          disabled={loading}
-        >
-          <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex space-x-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={fetchServerFiles}
+            disabled={loading || deletingAll}
+          >
+            <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          {serverFiles.length > 0 && (
+            <Button 
+              variant="destructive" 
+              size="sm" 
+              onClick={deleteAllFiles}
+              disabled={loading || deletingAll}
+            >
+              {deletingAll ? (
+                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 mr-1" />
+              )}
+              {deletingAll ? 'Deleting...' : 'Delete All'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* File List */}
