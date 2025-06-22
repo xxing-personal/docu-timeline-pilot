@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Generated content and uploads
+api/extracted-texts/
+api/uploads/
+uploads/
+extracted-texts/
+*.pdf_extracted.md
