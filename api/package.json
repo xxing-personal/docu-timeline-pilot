@@ -1,35 +1,28 @@
 {
   "name": "api",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "A simple test for async.queue",
+  "main": "app.ts",
+
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
-    "build": "tsc",
-    "start": "node dist/app.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "ts-node-dev --respawn --transpile-only app.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "@types/cors": "^2.8.18",
-    "async": "^3.2.6",
+    "async": "^3.2.5",
     "cors": "^2.8.5",
-    "express": "^5.1.0",
-    "form-data": "^4.0.3",
+    "express": "^4.19.2",
     "multer": "^2.0.1",
-    "openai": "^5.5.1",
+    "openai": "^5.6.0",
     "pdf-parse": "^1.1.1"
   },
   "devDependencies": {
     "@types/async": "^3.2.24",
-    "@types/express": "^5.0.2",
-    "@types/multer": "^1.4.12",
-    "@types/node": "^22.15.30",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.13",
+    "@types/node": "^24.0.3",
     "@types/pdf-parse": "^1.1.5",
-    "concurrently": "^9.1.2",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.4.5"
   }
 }

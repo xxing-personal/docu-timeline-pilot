@@ -23,6 +23,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { getApiBaseUrl } from "@/lib/utils";
 
 interface PdfTask {
   id: string;
@@ -52,7 +53,7 @@ interface TimelineTabProps {
   switchToViewerTab: () => void;
 }
 
-const API_BASE_URL = 'http://localhost:3000';
+const API_BASE_URL = getApiBaseUrl();
 
 // Sortable task item component
 interface SortableTaskItemProps {
