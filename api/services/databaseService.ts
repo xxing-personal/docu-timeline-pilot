@@ -36,6 +36,9 @@ export class DatabaseService {
         lastProcessedDate: new Date().toISOString()
       }
     });
+    
+    // Initialize the database asynchronously
+    this.initializeDatabase();
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -79,12 +82,14 @@ export class DatabaseService {
 
   // Task management methods
   async addTask(task: PDFTask): Promise<void> {
+    await this.ensureInitialized();
     await this.db.read();
     this.db.data!.tasks.push(task);
     await this.db.write();
   }
 
   async updateTask(taskId: string, updates: Partial<PDFTask>): Promise<boolean> {
+    await this.ensureInitialized();
     await this.db.read();
     const taskIndex = this.db.data!.tasks.findIndex(task => task.id === taskId);
     
@@ -102,16 +107,19 @@ export class DatabaseService {
   }
 
   async getTask(taskId: string): Promise<PDFTask | undefined> {
+    await this.ensureInitialized();
     await this.db.read();
     return this.db.data!.tasks.find(task => task.id === taskId);
   }
 
   async getAllTasks(): Promise<PDFTask[]> {
+    await this.ensureInitialized();
     await this.db.read();
     return this.db.data!.tasks;
   }
 
   async removeTask(taskId: string): Promise<boolean> {
+    await this.ensureInitialized();
     await this.db.read();
     const initialLength = this.db.data!.tasks.length;
     this.db.data!.tasks = this.db.data!.tasks.filter(task => task.id !== taskId);
@@ -124,6 +132,7 @@ export class DatabaseService {
   }
 
   async clearCompletedTasks(): Promise<number> {
+    await this.ensureInitialized();
     await this.db.read();
     const initialLength = this.db.data!.tasks.length;
     this.db.data!.tasks = this.db.data!.tasks.filter(task => task.status !== 'completed');
@@ -138,6 +147,7 @@ export class DatabaseService {
 
   // Statistics methods
   async updateStatistics(processed: boolean, failed: boolean = false): Promise<void> {
+    await this.ensureInitialized();
     await this.db.read();
     
     if (processed) {
@@ -153,12 +163,14 @@ export class DatabaseService {
   }
 
   async getStatistics(): Promise<DatabaseSchema['statistics']> {
+    await this.ensureInitialized();
     await this.db.read();
     return this.db.data!.statistics;
   }
 
   // Database maintenance methods
   async backup(): Promise<string> {
+    await this.ensureInitialized();
     await this.db.read();
     const backupPath = path.join(process.cwd(), 'data', `backup-${Date.now()}.json`);
     await fs.writeFile(backupPath, JSON.stringify(this.db.data, null, 2));
@@ -177,6 +189,7 @@ export class DatabaseService {
     lastBackup: string;
     version: string;
   }> {
+    await this.ensureInitialized();
     await this.db.read();
     const tasks = this.db.data!.tasks;
     
@@ -192,6 +205,7 @@ export class DatabaseService {
 
   // Utility methods
   async resetDatabase(): Promise<void> {
+    await this.ensureInitialized();
     this.db.data = {
       tasks: [],
       settings: {

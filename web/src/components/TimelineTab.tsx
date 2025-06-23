@@ -38,6 +38,13 @@ interface PdfTask {
   pageCount?: number;
   fileSize?: number;
   displayOrder?: number;
+  result?: {
+    summary: string;
+    extractedTextPath: string;
+    pageCount: number;
+    fileSize: number;
+    metadata: any;
+  };
 }
 
 interface TasksResponse {
@@ -95,6 +102,46 @@ const SortableTaskItem = ({
   const events = getProcessingEvents(task);
   const canReorder = task.status === 'completed'; // Only allow reordering of completed tasks
 
+  // Parse structured summary for completed tasks
+  const parseStructuredSummary = (summary: string) => {
+    const lines = summary.split('\n');
+    const result: {
+      oneSentenceSummary?: string;
+      bulletPoints?: string[];
+      confidenceIndex?: string;
+      sentimentIndex?: string;
+    } = {};
+
+    let currentSection = '';
+    let bulletPoints: string[] = [];
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      if (trimmedLine.startsWith('ONE_SENTENCE_SUMMARY:')) {
+        result.oneSentenceSummary = trimmedLine.replace('ONE_SENTENCE_SUMMARY:', '').trim();
+      } else if (trimmedLine.startsWith('BULLET_POINTS:')) {
+        currentSection = 'bulletPoints';
+        bulletPoints = [];
+      } else if (trimmedLine.startsWith('CONFIDENCE_INDEX:')) {
+        result.confidenceIndex = trimmedLine.replace('CONFIDENCE_INDEX:', '').trim();
+        currentSection = '';
+      } else if (trimmedLine.startsWith('SENTIMENT_INDEX:')) {
+        result.sentimentIndex = trimmedLine.replace('SENTIMENT_INDEX:', '').trim();
+        currentSection = '';
+      } else if (currentSection === 'bulletPoints' && trimmedLine.startsWith('•')) {
+        bulletPoints.push(trimmedLine.replace('•', '').trim());
+      }
+    }
+
+    result.bulletPoints = bulletPoints;
+    return result;
+  };
+
+  const summaryData = task.status === 'completed' && task.result?.summary 
+    ? parseStructuredSummary(task.result.summary)
+    : null;
+
   return (
     <div ref={setNodeRef} style={style} className="relative">
       {/* Timeline Node */}
@@ -138,17 +185,76 @@ const SortableTaskItem = ({
           </Badge>
         </div>
         
-        {/* Processing Events */}
-        <div className="space-y-2 mb-3">
-          {events.map((event, index) => (
-            <div key={index} className={`flex items-center space-x-2 text-sm ${
-              event.completed ? 'text-slate-600' : 'text-slate-500'
-            }`}>
-              {event.icon}
-              <span>{event.text}</span>
-            </div>
-          ))}
-        </div>
+        {/* Processing Events for non-completed tasks */}
+        {task.status !== 'completed' && (
+          <div className="space-y-2 mb-3">
+            {events.map((event, index) => (
+              <div key={index} className={`flex items-center space-x-2 text-sm ${
+                event.completed ? 'text-slate-600' : 'text-slate-500'
+              }`}>
+                {event.icon}
+                <span>{event.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Structured Summary for completed tasks */}
+        {task.status === 'completed' && summaryData && (
+          <div className="space-y-3 mb-3">
+            {/* Processing time */}
+            {task.completedAt && (
+              <div className="text-sm text-slate-600 bg-slate-50 p-2 rounded">
+                <span className="font-medium">Processed:</span> {formatDate(task.completedAt)}
+              </div>
+            )}
+
+            {/* One sentence summary */}
+            {summaryData.oneSentenceSummary && (
+              <div className="bg-blue-50 p-3 rounded border-l-4 border-blue-400">
+                <h5 className="text-sm font-medium text-blue-900 mb-1">Summary</h5>
+                <p className="text-sm text-blue-800">{summaryData.oneSentenceSummary}</p>
+              </div>
+            )}
+
+            {/* Bullet points */}
+            {summaryData.bulletPoints && summaryData.bulletPoints.length > 0 && (
+              <div className="bg-green-50 p-3 rounded border-l-4 border-green-400">
+                <h5 className="text-sm font-medium text-green-900 mb-2">Key Points</h5>
+                <ul className="space-y-1">
+                  {summaryData.bulletPoints.map((point, index) => (
+                    <li key={index} className="text-sm text-green-800 flex items-start">
+                      <span className="text-green-600 mr-2">•</span>
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Confidence and Sentiment indices */}
+            {(summaryData.confidenceIndex || summaryData.sentimentIndex) && (
+              <div className="flex space-x-4 text-xs">
+                {summaryData.confidenceIndex && (
+                  <div className="flex items-center space-x-1">
+                    <span className="text-slate-600">Confidence:</span>
+                    <span className="font-medium text-slate-800">
+                      {(parseFloat(summaryData.confidenceIndex) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                )}
+                {summaryData.sentimentIndex && (
+                  <div className="flex items-center space-x-1">
+                    <span className="text-slate-600">Sentiment:</span>
+                    <span className="font-medium text-slate-800">
+                      {(parseFloat(summaryData.sentimentIndex) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         
         <div className="flex space-x-2">
           <Button 
