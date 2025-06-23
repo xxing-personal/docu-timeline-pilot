@@ -157,14 +157,31 @@ ${extractedText}
         messages: [
           {
             role: "system",
-            content: "You are an expert document analyst. Provide a concise, informative summary of the document content. Focus on key points, main topics, and important details. Keep the summary between 150-300 words."
+            content: `You are an expert document analyst. Analyze the document and provide a comprehensive summary with the following structure:
+
+1. ONE_SENTENCE_SUMMARY: A concise one-sentence summary of the document
+2. BULLET_POINTS: 3-6 key bullet points highlighting main topics and important details
+3. CONFIDENCE_INDEX: A number between 0-1 indicating your confidence in the accuracy of your analysis (0 = very uncertain, 1 = very confident)
+4. SENTIMENT_INDEX: A number between 0-1 indicating the overall sentiment of the document (0 = very negative, 0.5 = neutral, 1 = very positive)
+
+Format your response exactly as follows:
+ONE_SENTENCE_SUMMARY: [your one-sentence summary]
+BULLET_POINTS:
+• [bullet point 1]
+• [bullet point 2]
+• [bullet point 3]
+• [bullet point 4]
+• [bullet point 5]
+• [bullet point 6]
+CONFIDENCE_INDEX: [number between 0-1]
+SENTIMENT_INDEX: [number between 0-1]`
           },
           {
             role: "user",
-            content: `Please summarize the following document content from "${filename}":\n\n${truncatedText}`
+            content: `Please analyze the following document content from "${filename}":\n\n${truncatedText}`
           }
         ],
-        max_tokens: 500,
+        max_tokens: 800,
         temperature: 0.3
       });
       
@@ -193,13 +210,18 @@ ${extractedText}
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
     const firstSentences = sentences.slice(0, 3).join('. ').trim();
     
-    return `Document Summary for ${filename}:
+    return `ONE_SENTENCE_SUMMARY: This document contains ${totalWords} words and appears to be a text-based document requiring AI analysis for detailed summarization.
 
-This document contains ${totalWords} words across ${chars} characters. 
+BULLET_POINTS:
+• Document contains ${totalWords} words across ${chars} characters
+• Text appears to be readable and extractable from PDF format
+• Content preview: ${firstSentences}${firstSentences.endsWith('.') ? '' : '.'}
+• Document filename: ${filename}
+• Analysis method: Basic text extraction (AI summarization not available)
+• For enhanced analysis, configure OPENAI_API_KEY environment variable
 
-Key content preview: ${firstSentences}${firstSentences.endsWith('.') ? '' : '.'}
-
-Note: This is a basic text analysis. For AI-powered summarization, configure the OPENAI_API_KEY environment variable.`;
+CONFIDENCE_INDEX: 0.3
+SENTIMENT_INDEX: 0.5`;
   }
 
   // Method to validate PDF file
