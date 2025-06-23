@@ -1,16 +1,18 @@
 import async from 'async';
 import { PDFTask } from '../types';
 import { PDFProcessor } from './pdfProcessor';
+import { DatabaseService } from './databaseService';
 
 export class PDFQueueService {
   private queue: async.QueueObject<PDFTask>;
-  private tasks: Map<string, PDFTask> = new Map();
-  private taskIdCounter = 1;
-  private pdfProcessor: PDFProcessor;
   private taskOrder: string[] = []; // Maintain order of tasks
+  private pdfProcessor: PDFProcessor;
+  private databaseService: DatabaseService;
 
-  constructor(pdfProcessor: PDFProcessor, concurrency: number = 1) {
+  constructor(pdfProcessor: PDFProcessor, databaseService: DatabaseService, concurrency: number = 1) {
     this.pdfProcessor = pdfProcessor;
+    this.databaseService = databaseService;
+    
     // 1. Initialize the queue with our worker function
     this.queue = async.queue(
       (task: PDFTask, callback) => {
@@ -34,16 +36,19 @@ export class PDFQueueService {
     
     try {
       // Update task status to processing
-      this.updateTaskStatus(task.id, 'processing', { startedAt: new Date() });
+      await this.updateTaskStatus(task.id, 'processing', { startedAt: new Date() });
       
       // Process the PDF using the real PDFProcessor
       const result = await this.pdfProcessor.process(task);
       
       // Update task with completion
-      this.updateTaskStatus(task.id, 'completed', {
+      await this.updateTaskStatus(task.id, 'completed', {
         completedAt: new Date(),
         result: result
       });
+      
+      // Update statistics
+      await this.databaseService.updateStatistics(true, false);
       
       console.log(`[END] Finished PDF Task #${task.id}: "${task.filename}"`);
       
@@ -51,27 +56,23 @@ export class PDFQueueService {
       console.error(`[ERROR] Failed to process PDF Task #${task.id}: "${task.filename}"`, error);
       
       // Update task with failure
-      this.updateTaskStatus(task.id, 'failed', {
+      await this.updateTaskStatus(task.id, 'failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
         completedAt: new Date()
       });
+      
+      // Update statistics
+      await this.databaseService.updateStatistics(false, true);
     }
   }
 
   // Helper method to update task status
-  private updateTaskStatus(taskId: string, status: PDFTask['status'], updates: Partial<PDFTask> = {}): void {
-    const task = this.tasks.get(taskId);
-    if (task) {
-      this.tasks.set(taskId, {
-        ...task,
-        status,
-        ...updates
-      });
-    }
+  private async updateTaskStatus(taskId: string, status: PDFTask['status'], updates: Partial<PDFTask> = {}): Promise<void> {
+    await this.databaseService.updateTask(taskId, { status, ...updates });
   }
 
   // 4. Public method to add new PDF tasks to the queue
-  public addTask(filename: string, path: string): string {
+  public async addTask(filename: string, path: string): Promise<string> {
     const taskId = `pdf_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     const task: PDFTask = {
@@ -80,11 +81,11 @@ export class PDFQueueService {
       path,
       status: 'pending',
       createdAt: new Date(),
-      displayOrder: this.tasks.size
+      displayOrder: this.taskOrder.length
     };
     
-    // Store task in the tasks map
-    this.tasks.set(taskId, task);
+    // Store task in database
+    await this.databaseService.addTask(task);
     
     // Add task to the order array
     this.taskOrder.push(taskId);
@@ -97,13 +98,13 @@ export class PDFQueueService {
   }
 
   // Get task by ID
-  public getTask(taskId: string): PDFTask | undefined {
-    return this.tasks.get(taskId);
+  public async getTask(taskId: string): Promise<PDFTask | undefined> {
+    return await this.databaseService.getTask(taskId);
   }
 
   // Get all tasks
-  public getAllTasks(): PDFTask[] {
-    return Array.from(this.tasks.values());
+  public async getAllTasks(): Promise<PDFTask[]> {
+    return await this.databaseService.getAllTasks();
   }
 
   // Get queue statistics
@@ -128,52 +129,32 @@ export class PDFQueueService {
   }
 
   // Task management methods
-  public removeTask(taskId: string): boolean {
-    const task = this.tasks.get(taskId);
-    if (!task) {
-      return false;
-    }
-
-    // Remove from tasks map
-    this.tasks.delete(taskId);
+  public async removeTask(taskId: string): Promise<boolean> {
+    const removed = await this.databaseService.removeTask(taskId);
     
-    // Remove from task order array
-    const orderIndex = this.taskOrder.indexOf(taskId);
-    if (orderIndex > -1) {
-      this.taskOrder.splice(orderIndex, 1);
+    if (removed) {
+      // Remove from task order array
+      const orderIndex = this.taskOrder.indexOf(taskId);
+      if (orderIndex > -1) {
+        this.taskOrder.splice(orderIndex, 1);
+      }
+      console.log(`🗑️ Removed task ${taskId}`);
     }
-
-    console.log(`🗑️ Removed task ${taskId}`);
-    return true;
+    
+    return removed;
   }
 
-  public clearCompletedTasks(): number {
-    let clearedCount = 0;
-    const tasksToRemove: string[] = [];
-
-    // Find completed tasks
-    for (const [taskId, task] of this.tasks.entries()) {
-      if (task.status === 'completed') {
-        tasksToRemove.push(taskId);
-      }
-    }
-
-    // Remove completed tasks
-    for (const taskId of tasksToRemove) {
-      if (this.removeTask(taskId)) {
-        clearedCount++;
-      }
-    }
-
+  public async clearCompletedTasks(): Promise<number> {
+    const clearedCount = await this.databaseService.clearCompletedTasks();
     console.log(`🧹 Cleared ${clearedCount} completed tasks`);
     return clearedCount;
   }
 
   // Safe reorder method that only works on completed tasks
-  public reorderTasks(taskIds: string[]): boolean {
+  public async reorderTasks(taskIds: string[]): Promise<boolean> {
     // Validate that all tasks exist and are completed
     for (const taskId of taskIds) {
-      const task = this.tasks.get(taskId);
+      const task = await this.databaseService.getTask(taskId);
       if (!task) {
         console.error(`❌ Task ${taskId} not found`);
         return false;
@@ -193,26 +174,22 @@ export class PDFQueueService {
     }
     
     // Add any remaining completed tasks that weren't in the reorder list
-    for (const taskId of this.taskOrder) {
-      const task = this.tasks.get(taskId);
-      if (task && task.status === 'completed' && !taskIds.includes(taskId)) {
-        newTaskOrder.push(taskId);
+    const allTasks = await this.databaseService.getAllTasks();
+    for (const task of allTasks) {
+      if (task.status === 'completed' && !taskIds.includes(task.id)) {
+        newTaskOrder.push(task.id);
       }
     }
-
+    
     // Update the task order
     this.taskOrder = newTaskOrder;
     
-    // Update display order for all tasks
-    for (let i = 0; i < this.taskOrder.length; i++) {
-      const taskId = this.taskOrder[i];
-      const task = this.tasks.get(taskId);
-      if (task) {
-        this.tasks.set(taskId, { ...task, displayOrder: i });
-      }
-    }
-
-    console.log(`🔄 Reordered ${taskIds.length} completed tasks`);
+    console.log(`🔄 Reordered ${taskIds.length} tasks`);
     return true;
+  }
+
+  // Database service access
+  public getDatabaseService(): DatabaseService {
+    return this.databaseService;
   }
 } 

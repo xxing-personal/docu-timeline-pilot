@@ -82,7 +82,7 @@ ${extractedText}
       
       // Generate summary using OpenAI
       console.log(`[PDF PROCESSOR] Generating AI summary for: ${task.filename}`);
-      const summary = await this.generatePlaceholderSummary(extractedText, task.filename);
+      const summary = await this.generateSummary(extractedText, task.filename);
       
       // Get page count from pdf-parse results
       const pdfBuffer = await fs.readFile(task.path);
@@ -153,7 +153,7 @@ ${extractedText}
       const truncatedText = text.length > maxChars ? text.substring(0, maxChars) + '...' : text;
       
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
+        model: "gpt-4.1-mini",
         messages: [
           {
             role: "system",

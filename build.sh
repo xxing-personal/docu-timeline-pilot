@@ -2,9 +2,9 @@
 
 echo "Building Backend and Web applications..."
 
-# Build Backend (simple-queue-test)
+# Build Backend (api)
 echo "Building Backend..."
-cd simple-queue-test
+cd api
 npm install
 npx tsc
 echo "Backend built successfully"
@@ -18,8 +18,8 @@ echo "Web application built successfully"
 
 echo ""
 echo "Build completed!"
-echo "Backend compiled to: simple-queue-test/dist/"
+echo "Backend compiled to: api/dist/"
 echo "Web built to: web/dist/"
 echo ""
-echo "To run the backend: cd simple-queue-test && npm start"
+echo "To run the backend: cd api && npm start"
 echo "To serve the web build: cd web && npm run preview" 

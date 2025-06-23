@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
@@ -5,15 +6,17 @@ import path from 'path';
 import cors from 'cors';
 import { PDFQueueService } from './services/pdfQueueService';
 import { PDFProcessor } from './services/pdfProcessor';
+import { DatabaseService } from './services/databaseService';
 
 const app = express();
 const port = process.env.PORT || 3000;
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// Initialize PDF processor and queue service
+// Initialize services
+const databaseService = new DatabaseService();
 const pdfProcessor = new PDFProcessor();
-const queueService = new PDFQueueService(pdfProcessor);
+const queueService = new PDFQueueService(pdfProcessor, databaseService);
 
 // Ensure uploads directory exists
 const uploadDir = path.join(__dirname, '../uploads');
@@ -360,6 +363,50 @@ app.delete('/files', async (req, res) => {
   } catch (error) {
     console.error('Delete all files error:', error);
     res.status(500).json({ error: 'Failed to delete all files' });
+  }
+});
+
+// Database information endpoints
+app.get('/database/info', async (req, res) => {
+  try {
+    const info = await databaseService.getDatabaseInfo();
+    res.json(info);
+  } catch (error) {
+    console.error('Database info error:', error);
+    res.status(500).json({ error: 'Failed to get database info' });
+  }
+});
+
+app.get('/database/statistics', async (req, res) => {
+  try {
+    const stats = await databaseService.getStatistics();
+    res.json(stats);
+  } catch (error) {
+    console.error('Database statistics error:', error);
+    res.status(500).json({ error: 'Failed to get database statistics' });
+  }
+});
+
+app.post('/database/backup', async (req, res) => {
+  try {
+    const backupPath = await databaseService.backup();
+    res.json({ 
+      message: 'Database backed up successfully',
+      backupPath: backupPath
+    });
+  } catch (error) {
+    console.error('Database backup error:', error);
+    res.status(500).json({ error: 'Failed to backup database' });
+  }
+});
+
+app.post('/database/reset', async (req, res) => {
+  try {
+    await databaseService.resetDatabase();
+    res.json({ message: 'Database reset successfully' });
+  } catch (error) {
+    console.error('Database reset error:', error);
+    res.status(500).json({ error: 'Failed to reset database' });
   }
 });
 

@@ -3,14 +3,17 @@
   "version": "1.0.0",
   "description": "A simple test for async.queue",
   "main": "app.ts",
-
   "scripts": {
-    "start": "ts-node-dev --respawn --transpile-only app.ts"
+    "start": "ts-node-dev --respawn --transpile-only app.ts",
+    "build": "tsc",
+    "dev": "ts-node-dev --respawn --transpile-only app.ts"
   },
   "dependencies": {
     "async": "^3.2.5",
     "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
     "express": "^4.19.2",
+    "lowdb": "^7.0.1",
     "multer": "^2.0.1",
     "openai": "^5.6.0",
     "pdf-parse": "^1.1.1"

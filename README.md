@@ -1,4 +1,127 @@
-# Welcome to your Lovable project
+# Document Timeline Pilot
+
+A PDF processing application with queue management, built with Node.js/Express API (now using `simple-queue-test` as backend) and React web frontend.
+
+> **Note:** The `api/` folder has been deprecated. The backend is now located in `simple-queue-test/`. See `api/DEPRECATED.md` for migration details.
+
+## Project Structure
+
+- `simple-queue-test/` - Express.js API server with PDF processing and queue management (use this as backend)
+- `web/` - React frontend with shadcn/ui components
+- `uploads/` - Directory for uploaded PDF files
+- `extracted-texts/` - Directory for processed PDF text content
+- `api/` - **DEPRECATED** - Old backend folder (see DEPRECATED.md)
+
+## Quick Start
+
+### Option 1: Use the provided scripts
+
+```bash
+# Build both applications
+./build.sh
+
+# Start both development servers
+./start.sh
+```
+
+### Option 2: Manual setup
+
+#### Prerequisites
+- Node.js (v18 or higher)
+- npm
+
+#### Build and Run Backend (simple-queue-test)
+
+```bash
+cd simple-queue-test
+npm install
+npx tsc
+npm start
+```
+
+The backend will run on `http://localhost:3000` by default.
+
+#### Build and Run Web Application
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+The web application will run on `http://localhost:5173`
+
+#### Configure API Base URL (Frontend)
+
+You can set the backend API URL for the frontend using a `.env` file in the `web/` directory:
+
+```
+VITE_API_BASE_URL=http://localhost:3000
+```
+
+## API Endpoints
+
+- `POST /upload` - Upload PDF files for processing
+- `GET /status` - Get all task statuses
+- `GET /status/:taskId` - Get specific task status
+- `POST /queue/pause` - Pause the processing queue
+- `POST /queue/resume` - Resume the processing queue
+- `DELETE /tasks/:taskId` - Remove a specific task
+- `DELETE /tasks/completed` - Clear all completed tasks
+- `POST /tasks/reorder` - Reorder tasks in the queue
+
+## Features
+
+- **PDF Upload & Processing**: Upload multiple PDF files for text extraction
+- **Queue Management**: Background processing with configurable concurrency
+- **Real-time Status**: Monitor processing status of uploaded files
+- **Task Management**: Pause, resume, and manage processing tasks
+- **Modern UI**: React frontend with shadcn/ui components
+- **TypeScript**: Full type safety across the application
+
+## Development
+
+### Backend Development
+The backend uses TypeScript and compiles to JavaScript in the `dist/` directory. Use `npm start` for development with auto-reload.
+
+### Web Development
+The web application uses Vite for fast development with hot module replacement. Use `npm run dev` for development.
+
+## Production Deployment
+
+### Build for Production
+```bash
+./build.sh
+```
+
+### Serve Production Build
+```bash
+# Backend
+cd simple-queue-test && npm start
+
+# Web (serve static files)
+cd web && npm run preview
+```
+
+## Technologies Used
+
+### Backend
+- Node.js
+- Express.js
+- TypeScript
+- Multer (file uploads)
+- PDF-parse (PDF text extraction)
+- Async queue (background processing)
+
+### Frontend
+- React 18
+- TypeScript
+- Vite
+- shadcn/ui
+- Tailwind CSS
+- React Router
+- TanStack Query
+- React PDF (PDF viewing)
 
 ## Project info
 
@@ -49,16 +172,6 @@ npm run dev
 - Select the "Codespaces" tab.
 - Click on "New codespace" to launch a new Codespace environment.
 - Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
 
 ## How can I deploy this project?
 

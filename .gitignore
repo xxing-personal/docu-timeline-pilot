@@ -34,3 +34,11 @@ api/uploads/
 uploads/
 extracted-texts/
 *.pdf_extracted.md
+
+# Database files
+api/data/
+data/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
