@@ -138,7 +138,8 @@ app.get('/status', async (req, res) => {
       startedAt: task.startedAt,
       completedAt: task.completedAt,
       error: task.error,
-      // Don't include full result in list view for performance
+      // Include result for completed tasks so frontend can display summaries
+      result: task.result,
       hasResult: !!task.result
     }));
     

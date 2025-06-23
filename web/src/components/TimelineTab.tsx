@@ -142,6 +142,16 @@ const SortableTaskItem = ({
     ? parseStructuredSummary(task.result.summary)
     : null;
 
+  // Debug logging
+  if (task.status === 'completed') {
+    console.log(`Task ${task.id} (${task.filename}):`, {
+      hasResult: !!task.result,
+      hasSummary: !!task.result?.summary,
+      summaryLength: task.result?.summary?.length,
+      parsedSummary: summaryData
+    });
+  }
+
   return (
     <div ref={setNodeRef} style={style} className="relative">
       {/* Timeline Node */}
@@ -306,6 +316,17 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
       const response = await fetch(`${API_BASE_URL}/status`);
       if (response.ok) {
         const data: TasksResponse = await response.json();
+        console.log('Fetched tasks data:', {
+          totalTasks: data.tasks.length,
+          completedTasks: data.tasks.filter(t => t.status === 'completed').length,
+          tasks: data.tasks.map(t => ({
+            id: t.id,
+            filename: t.filename,
+            status: t.status,
+            hasResult: t.hasResult,
+            hasSummary: !!t.result?.summary
+          }))
+        });
         setTasks(data.tasks);
       } else {
         console.error('Failed to fetch tasks');
