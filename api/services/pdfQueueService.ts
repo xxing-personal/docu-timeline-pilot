@@ -145,12 +145,12 @@ export class PDFQueueService {
     const removed = await this.databaseService.removeTask(taskId);
     
     if (removed) {
-      // Remove from task order array
-      const orderIndex = this.taskOrder.indexOf(taskId);
-      if (orderIndex > -1) {
-        this.taskOrder.splice(orderIndex, 1);
-      }
-      console.log(`🗑️ Removed task ${taskId}`);
+    // Remove from task order array
+    const orderIndex = this.taskOrder.indexOf(taskId);
+    if (orderIndex > -1) {
+      this.taskOrder.splice(orderIndex, 1);
+    }
+    console.log(`🗑️ Removed task ${taskId}`);
     }
     
     return removed;
@@ -198,7 +198,7 @@ export class PDFQueueService {
         newTaskOrder.push(task.id);
       }
     }
-    
+
     // Update the task order
     this.taskOrder = newTaskOrder;
     
@@ -418,7 +418,7 @@ export class PDFQueueService {
       this.queue.push(task);
       console.log(`🔄 Regenerated task ${taskId} - added back to queue`);
       
-      return true;
+    return true;
     } catch (error) {
       console.error(`❌ Failed to regenerate task ${taskId}:`, error);
       return false;
