@@ -8,6 +8,7 @@ export class PDFQueueService {
   private taskOrder: string[] = []; // Maintain order of tasks
   private pdfProcessor: PDFProcessor;
   private databaseService: DatabaseService;
+  private autoReorderCompleted: boolean = false; // Track if auto-reorder has been done
 
   constructor(pdfProcessor: PDFProcessor, databaseService: DatabaseService, concurrency: number = 1) {
     this.pdfProcessor = pdfProcessor;
@@ -25,8 +26,11 @@ export class PDFQueueService {
     );
 
     // 2. Add a drain handler to know when the queue is empty
-    this.queue.drain(() => {
+    this.queue.drain(async () => {
       console.log('✅ All PDF tasks have been processed. The queue is now empty.');
+      
+      // Auto-reorder by inferred timestamp after all tasks are completed
+      await this.autoReorderByInferredTimestamp();
     });
   }
 
@@ -152,6 +156,12 @@ export class PDFQueueService {
 
   // Safe reorder method that only works on completed tasks
   public async reorderTasks(taskIds: string[]): Promise<boolean> {
+    // Check if auto-reorder by inferred timestamp has been completed
+    if (!this.autoReorderCompleted) {
+      console.error('❌ Manual reordering not allowed until auto-reorder by inferred timestamp is completed');
+      return false;
+    }
+
     // Validate that all tasks exist and are completed
     for (const taskId of taskIds) {
       const task = await this.databaseService.getTask(taskId);
@@ -191,5 +201,104 @@ export class PDFQueueService {
   // Database service access
   public getDatabaseService(): DatabaseService {
     return this.databaseService;
+  }
+
+  // Check if auto-reorder by inferred timestamp has been completed
+  public isAutoReorderCompleted(): boolean {
+    return this.autoReorderCompleted;
+  }
+
+  // Get auto-reorder status for API responses
+  public getAutoReorderStatus(): { completed: boolean; message: string } {
+    if (this.autoReorderCompleted) {
+      return {
+        completed: true,
+        message: 'Auto-reorder by inferred timestamp completed. Manual reordering is now allowed.'
+      };
+    } else {
+      return {
+        completed: false,
+        message: 'Auto-reorder by inferred timestamp not yet completed. Manual reordering is disabled.'
+      };
+    }
+  }
+
+  private async autoReorderByInferredTimestamp(): Promise<void> {
+    try {
+      console.log('[QUEUE] Starting auto-reorder by inferred timestamp...');
+      
+      const allTasks = await this.databaseService.getAllTasks();
+      const completedTasks = allTasks.filter(task => task.status === 'completed');
+      
+      if (completedTasks.length === 0) {
+        console.log('[QUEUE] No completed tasks to reorder');
+        return;
+      }
+      
+      // Filter tasks that have inferred timestamps
+      const tasksWithTimestamps = completedTasks.filter(task => 
+        task.result?.metadata?.inferredTimestamp
+      );
+      
+      if (tasksWithTimestamps.length === 0) {
+        console.log('[QUEUE] No tasks with inferred timestamps found');
+        return;
+      }
+      
+      // Sort by inferred timestamp
+      const sortedTaskIds = tasksWithTimestamps
+        .sort((a, b) => {
+          const timestampA = new Date(a.result?.metadata?.inferredTimestamp || 0).getTime();
+          const timestampB = new Date(b.result?.metadata?.inferredTimestamp || 0).getTime();
+          return timestampA - timestampB;
+        })
+        .map(task => task.id);
+      
+      console.log(`[QUEUE] Auto-reordering ${sortedTaskIds.length} tasks by inferred timestamp`);
+      
+      // Perform the reorder
+      const success = await this.reorderTasksByInferredTimestamp(sortedTaskIds);
+      
+      if (success) {
+        console.log('[QUEUE] Auto-reorder by inferred timestamp completed successfully');
+        this.autoReorderCompleted = true;
+      } else {
+        console.error('[QUEUE] Auto-reorder by inferred timestamp failed');
+      }
+      
+    } catch (error) {
+      console.error('[QUEUE] Error during auto-reorder by inferred timestamp:', error);
+    }
+  }
+
+  // New method for reordering by inferred timestamp (separate from manual reorder)
+  private async reorderTasksByInferredTimestamp(taskIds: string[]): Promise<boolean> {
+    try {
+      // Validate that all tasks exist and are completed
+      for (const taskId of taskIds) {
+        const task = await this.databaseService.getTask(taskId);
+        if (!task) {
+          console.error(`❌ Task ${taskId} not found during auto-reorder`);
+          return false;
+        }
+        if (task.status !== 'completed') {
+          console.error(`❌ Task ${taskId} is not completed during auto-reorder`);
+          return false;
+        }
+        if (!task.result?.metadata?.inferredTimestamp) {
+          console.error(`❌ Task ${taskId} has no inferred timestamp during auto-reorder`);
+          return false;
+        }
+      }
+
+      // Update the task order
+      this.taskOrder = [...taskIds];
+      
+      console.log(`🔄 Auto-reordered ${taskIds.length} tasks by inferred timestamp`);
+      return true;
+    } catch (error) {
+      console.error('Error during auto-reorder by inferred timestamp:', error);
+      return false;
+    }
   }
 } 

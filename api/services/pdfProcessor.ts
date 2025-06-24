@@ -84,6 +84,15 @@ ${extractedText}
       console.log(`[PDF PROCESSOR] Generating AI summary for: ${task.filename}`);
       const summary = await this.generateSummary(extractedText, task.filename);
       
+      // Parse inferred timestamp from summary
+      const inferredTimestamp = this.parseInferredTimestamp(summary);
+      if (inferredTimestamp) {
+        console.log(`[PDF PROCESSOR] Inferred timestamp found: ${inferredTimestamp} for ${task.filename}`);
+        await this.updateFileTimestamps(task.filename, inferredTimestamp);
+      } else {
+        console.log(`[PDF PROCESSOR] No valid timestamp inferred for ${task.filename}`);
+      }
+      
       // Get page count from pdf-parse results
       const pdfBuffer = await fs.readFile(task.path);
       const pdfData = await pdfParse(pdfBuffer);
@@ -101,7 +110,8 @@ ${extractedText}
           processingDuration: Date.now(), // Will be calculated later
           pdfInfo: pdfData.info || {},
           textLength: extractedText.length,
-          summaryLength: summary.length
+          summaryLength: summary.length,
+          inferredTimestamp: inferredTimestamp || null
         }
       };
       
@@ -163,6 +173,7 @@ ${extractedText}
 2. BULLET_POINTS: 3-6 key bullet points highlighting main topics and important details
 3. CONFIDENCE_INDEX: A number between 0-1 indicating your confidence in the accuracy of your analysis (0 = very uncertain, 1 = very confident)
 4. SENTIMENT_INDEX: A number between 0-1 indicating the overall sentiment of the document (0 = very negative, 0.5 = neutral, 1 = very positive)
+5. INFERRED_TIMESTAMP: If you can identify a clear date or timestamp from the document content (like "created on", "dated", "published", "issued", etc.), provide it in ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ). If no clear timestamp is found, respond with "NOT_FOUND".
 
 Format your response exactly as follows:
 ONE_SENTENCE_SUMMARY: [your one-sentence summary]
@@ -174,7 +185,8 @@ BULLET_POINTS:
 • [bullet point 5]
 • [bullet point 6]
 CONFIDENCE_INDEX: [number between 0-1]
-SENTIMENT_INDEX: [number between 0-1]`
+SENTIMENT_INDEX: [number between 0-1]
+INFERRED_TIMESTAMP: [ISO 8601 timestamp or NOT_FOUND]`
           },
           {
             role: "user",
@@ -221,7 +233,8 @@ BULLET_POINTS:
 • For enhanced analysis, configure OPENAI_API_KEY environment variable
 
 CONFIDENCE_INDEX: 0.3
-SENTIMENT_INDEX: 0.5`;
+SENTIMENT_INDEX: 0.5
+INFERRED_TIMESTAMP: NOT_FOUND`;
   }
 
   // Method to validate PDF file
@@ -261,6 +274,39 @@ SENTIMENT_INDEX: 0.5`;
         fileSize: 0,
         error: 'Failed to extract PDF metadata'
       };
+    }
+  }
+
+  private parseInferredTimestamp(summary: string): string | null {
+    const lines = summary.split('\n');
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith('INFERRED_TIMESTAMP:')) {
+        const timestamp = trimmedLine.replace('INFERRED_TIMESTAMP:', '').trim();
+        if (timestamp === 'NOT_FOUND') {
+          return null;
+        }
+        // Validate that it's a proper ISO timestamp
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(timestamp)) {
+          return timestamp;
+        }
+      }
+    }
+    return null;
+  }
+
+  private async updateFileTimestamps(filename: string, inferredTimestamp: string): Promise<void> {
+    try {
+      // Update the actual PDF file timestamps
+      const pdfFilePath = path.join(process.cwd(), '../uploads', filename);
+      const timestamp = new Date(inferredTimestamp);
+      
+      // Update file modification time
+      await fs.utimes(pdfFilePath, timestamp, timestamp);
+      
+      console.log(`[PDF PROCESSOR] Updated file timestamps for: ${filename} to ${inferredTimestamp}`);
+    } catch (error) {
+      console.error(`Error updating file timestamps for ${filename}:`, error);
     }
   }
 } 

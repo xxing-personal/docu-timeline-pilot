@@ -60,8 +60,17 @@ app.post('/upload', upload.array('pdf', 10), async (req, res) => {
     const files = req.files as Express.Multer.File[];
     const results = [];
     
-    // Add each file to queue
-    for (const file of files) {
+    // Sort files by upload timestamp (creation time)
+    const sortedFiles = files.sort((a, b) => {
+      const statsA = fs.statSync(a.path);
+      const statsB = fs.statSync(b.path);
+      return statsA.birthtime.getTime() - statsB.birthtime.getTime();
+    });
+    
+    console.log(`[UPLOAD] Processing ${sortedFiles.length} files in upload timestamp order`);
+    
+    // Add each file to queue in sorted order
+    for (const file of sortedFiles) {
       const taskId = await queueService.addTask(file.filename, file.path);
       results.push({
         taskId,
@@ -73,7 +82,7 @@ app.post('/upload', upload.array('pdf', 10), async (req, res) => {
     const queueStats = await queueService.getQueueStats();
     
     res.json({
-      message: `${files.length} PDF(s) uploaded successfully and queued for processing!`,
+      message: `${files.length} PDF(s) uploaded successfully and queued for processing in upload timestamp order!`,
       files: results,
       queueLength: queueStats.queue.length
     });
@@ -213,6 +222,17 @@ app.delete('/tasks/completed', async (req, res) => {
   }
 });
 
+// Get auto-reorder status
+app.get('/tasks/auto-reorder-status', (req, res) => {
+  try {
+    const status = queueService.getAutoReorderStatus();
+    res.json(status);
+  } catch (error) {
+    console.error('Get auto-reorder status error:', error);
+    res.status(500).json({ error: 'Failed to get auto-reorder status' });
+  }
+});
+
 // Reorder tasks endpoint (safe version for completed tasks only)
 app.post('/tasks/reorder', async (req, res) => {
   try {
@@ -223,15 +243,30 @@ app.post('/tasks/reorder', async (req, res) => {
       return;
     }
     
+    // Check if auto-reorder by inferred timestamp has been completed
+    const autoReorderStatus = queueService.getAutoReorderStatus();
+    if (!autoReorderStatus.completed) {
+      res.status(403).json({ 
+        error: 'Manual reordering not allowed',
+        details: autoReorderStatus.message,
+        autoReorderCompleted: false
+      });
+      return;
+    }
+    
     const success = await queueService.reorderTasks(taskIds);
     
     if (success) {
       res.json({ 
         message: 'Tasks reordered successfully',
-        taskIds: taskIds
+        taskIds: taskIds,
+        autoReorderCompleted: true
       });
     } else {
-      res.status(400).json({ error: 'Failed to reorder tasks' });
+      res.status(400).json({ 
+        error: 'Failed to reorder tasks',
+        autoReorderCompleted: true
+      });
     }
   } catch (error) {
     console.error('Reorder tasks error:', error);
