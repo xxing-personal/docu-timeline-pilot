@@ -92,6 +92,18 @@ ${extractedText}
       } else {
         console.log(`[PDF PROCESSOR] No valid timestamp inferred for ${task.filename}`);
       }
+
+      // Parse all *_INDEX fields from summary
+      const analysisScores: Record<string, number> = {};
+      const indexPattern = /([A-Z_]+_INDEX):\s*([0-9.]+)/g;
+      let match;
+      while ((match = indexPattern.exec(summary)) !== null) {
+        const key = match[1].replace('_INDEX', '').toLowerCase();
+        const value = parseFloat(match[2]);
+        if (!isNaN(value)) {
+          analysisScores[key] = value;
+        }
+      }
       
       // Get page count from pdf-parse results
       const pdfBuffer = await fs.readFile(task.path);
@@ -111,7 +123,8 @@ ${extractedText}
           pdfInfo: pdfData.info || {},
           textLength: extractedText.length,
           summaryLength: summary.length,
-          inferredTimestamp: inferredTimestamp || null
+          inferredTimestamp: inferredTimestamp || null,
+          analysisScores
         }
       };
       

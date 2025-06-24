@@ -263,7 +263,7 @@ const SortableTaskItem = ({
                   <div className="flex items-center space-x-1">
                     <span className="text-slate-600">Confidence:</span>
                     <span className="font-medium text-slate-800">
-                      {(parseFloat(summaryData.confidenceIndex) * 100).toFixed(0)}%
+                      {(Number(summaryData.confidenceIndex) * 100).toFixed(0)}%
                     </span>
                   </div>
                 )}
@@ -271,10 +271,24 @@ const SortableTaskItem = ({
                   <div className="flex items-center space-x-1">
                     <span className="text-slate-600">Sentiment:</span>
                     <span className="font-medium text-slate-800">
-                      {(parseFloat(summaryData.sentimentIndex) * 100).toFixed(0)}%
+                      {(Number(summaryData.sentimentIndex) * 100).toFixed(0)}%
                     </span>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Analysis Scores (dynamic) */}
+            {task.result?.metadata?.analysisScores && Object.keys(task.result.metadata.analysisScores).length > 0 && (
+              <div className="flex flex-wrap gap-4 text-xs">
+                {Object.entries(task.result.metadata.analysisScores).map(([key, value]) => (
+                  <div key={key} className="flex items-center space-x-1">
+                    <span className="text-slate-600">{key.charAt(0).toUpperCase() + key.slice(1)}:</span>
+                    <span className="font-medium text-slate-800">
+                      {(Number(value) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
