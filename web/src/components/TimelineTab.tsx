@@ -256,28 +256,6 @@ const SortableTaskItem = ({
               </div>
             )}
 
-            {/* Confidence and Sentiment indices */}
-            {(summaryData.confidenceIndex || summaryData.sentimentIndex) && (
-              <div className="flex space-x-4 text-xs">
-                {summaryData.confidenceIndex && (
-                  <div className="flex items-center space-x-1">
-                    <span className="text-slate-600">Confidence:</span>
-                    <span className="font-medium text-slate-800">
-                      {(Number(summaryData.confidenceIndex) * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                )}
-                {summaryData.sentimentIndex && (
-                  <div className="flex items-center space-x-1">
-                    <span className="text-slate-600">Sentiment:</span>
-                    <span className="font-medium text-slate-800">
-                      {(Number(summaryData.sentimentIndex) * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Analysis Scores (dynamic) */}
             {task.result?.metadata?.analysisScores && Object.keys(task.result.metadata.analysisScores).length > 0 && (
               <div className="flex flex-wrap gap-4 text-xs">
