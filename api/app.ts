@@ -443,6 +443,162 @@ app.post('/database/reset', async (req, res) => {
   }
 });
 
+// Task action endpoints (only for completed tasks)
+app.post('/tasks/:taskId/change-timestamp', async (req, res) => {
+  try {
+    const taskId = req.params.taskId;
+    const { newTimestamp } = req.body as { newTimestamp: string };
+    
+    if (!newTimestamp) {
+      res.status(400).json({ error: 'newTimestamp is required' });
+      return;
+    }
+    
+    // Validate timestamp format
+    const timestamp = new Date(newTimestamp);
+    if (isNaN(timestamp.getTime())) {
+      res.status(400).json({ error: 'Invalid timestamp format. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)' });
+      return;
+    }
+    
+    const task = await queueService.getTask(taskId);
+    if (!task) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
+    
+    if (task.status !== 'completed') {
+      res.status(400).json({ error: 'Can only change timestamp for completed tasks' });
+      return;
+    }
+    
+    // Update the inferred timestamp in the task result
+    if (!task.result) {
+      res.status(400).json({ error: 'Task has no result to update' });
+      return;
+    }
+    
+    const updatedResult = {
+      ...task.result,
+      metadata: {
+        ...task.result.metadata,
+        inferredTimestamp: newTimestamp
+      }
+    };
+    
+    const success = await queueService.updateTaskResult(taskId, updatedResult);
+    
+    if (success) {
+      res.json({ 
+        message: 'Timestamp updated successfully',
+        taskId: taskId,
+        newTimestamp: newTimestamp
+      });
+    } else {
+      res.status(500).json({ error: 'Failed to update timestamp' });
+    }
+  } catch (error) {
+    console.error('Change timestamp error:', error);
+    res.status(500).json({ error: 'Failed to change timestamp' });
+  }
+});
+
+app.post('/tasks/:taskId/regenerate', async (req, res) => {
+  try {
+    const taskId = req.params.taskId;
+    
+    const task = await queueService.getTask(taskId);
+    if (!task) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
+    
+    if (task.status !== 'completed') {
+      res.status(400).json({ error: 'Can only regenerate summary for completed tasks' });
+      return;
+    }
+    
+    // Reset task to pending status and add back to queue
+    const success = await queueService.regenerateTask(taskId);
+    
+    if (success) {
+      res.json({ 
+        message: 'Task queued for regeneration',
+        taskId: taskId,
+        status: 'pending'
+      });
+    } else {
+      res.status(500).json({ error: 'Failed to regenerate task' });
+    }
+  } catch (error) {
+    console.error('Regenerate task error:', error);
+    res.status(500).json({ error: 'Failed to regenerate task' });
+  }
+});
+
+app.post('/tasks/:taskId/edit-score', async (req, res) => {
+  try {
+    const taskId = req.params.taskId;
+    const { scores } = req.body as { scores: Record<string, number> };
+    
+    if (!scores || typeof scores !== 'object') {
+      res.status(400).json({ error: 'scores object is required' });
+      return;
+    }
+    
+    // Validate scores (should be between 0 and 1)
+    for (const [key, value] of Object.entries(scores)) {
+      if (typeof value !== 'number' || value < 0 || value > 1) {
+        res.status(400).json({ error: `Score for ${key} must be a number between 0 and 1` });
+        return;
+      }
+    }
+    
+    const task = await queueService.getTask(taskId);
+    if (!task) {
+      res.status(404).json({ error: 'Task not found' });
+      return;
+    }
+    
+    if (task.status !== 'completed') {
+      res.status(400).json({ error: 'Can only edit scores for completed tasks' });
+      return;
+    }
+    
+    // Update the analysis scores in the task result
+    if (!task.result) {
+      res.status(400).json({ error: 'Task has no result to update' });
+      return;
+    }
+    
+    const updatedResult = {
+      ...task.result,
+      metadata: {
+        ...task.result.metadata,
+        analysisScores: {
+          ...(task.result.metadata?.analysisScores || {}),
+          ...scores
+        }
+      }
+    };
+    
+    const success = await queueService.updateTaskResult(taskId, updatedResult);
+    
+    if (success) {
+      res.json({ 
+        message: 'Scores updated successfully',
+        taskId: taskId,
+        updatedScores: scores
+      });
+    } else {
+      res.status(500).json({ error: 'Failed to update scores' });
+    }
+  } catch (error) {
+    console.error('Edit score error:', error);
+    res.status(500).json({ error: 'Failed to edit score' });
+  }
+});
+
 // Error handling middleware
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Unhandled error:', error);

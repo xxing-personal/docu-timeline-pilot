@@ -1,178 +1,144 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { FileText, Calendar, Clock, ChevronDown, ChevronRight, BarChart2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
+import { Line } from 'react-chartjs-2';
+import { getApiBaseUrl } from "@/lib/utils";
 
-interface AnalysisTabProps {
-  uploadedFiles: File[];
-}
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
-interface TimelineEvent {
+interface PdfTask {
   id: string;
-  documentName: string;
-  time: string;
-  title: string;
-  summary: string;
-  details: string;
-  color: string;
-  type: 'positive' | 'neutral' | 'negative';
+  filename: string;
+  status: string;
+  createdAt: string;
+  completedAt?: string;
+  result?: {
+    summary: string;
+    extractedTextPath: string;
+    pageCount: number;
+    fileSize: number;
+    metadata: {
+      inferredTimestamp?: string;
+      analysisScores?: Record<string, number>;
+    };
+  };
 }
 
-const AnalysisTab = ({ uploadedFiles }: AnalysisTabProps) => {
-  const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
+const API_BASE_URL = getApiBaseUrl();
 
-  // Mock timeline events based on uploaded files
-  const generateTimelineEvents = (): TimelineEvent[] => {
-    const events: TimelineEvent[] = [];
-    
-    uploadedFiles.forEach((file, index) => {
-      const baseTime = new Date();
-      baseTime.setHours(9 + index * 2, 0, 0, 0);
-      
-      events.push({
-        id: `event-${index}`,
-        documentName: file.name,
-        time: baseTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        title: `Key Insight from ${file.name.split('.')[0]}`,
-        summary: `Significant tone shift detected in document analysis`,
-        details: `This document shows a notable change from formal to conversational tone around page 3. The language becomes more engaging and direct, suggesting a shift in intended audience or communication strategy. Key phrases include "let's explore", "you might wonder", and "here's what matters most". This change correlates with improved readability scores and may indicate better user engagement potential.`,
-        color: index % 3 === 0 ? 'bg-blue-500' : index % 3 === 1 ? 'bg-green-500' : 'bg-orange-500',
-        type: index % 3 === 0 ? 'positive' : index % 3 === 1 ? 'neutral' : 'negative'
-      });
+const AnalysisTab = () => {
+  const [tasks, setTasks] = useState<PdfTask[]>([]);
+  const [indexNames, setIndexNames] = useState<string[]>([]);
+  const [activeIndex, setActiveIndex] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchTasks();
+  }, []);
+
+  const fetchTasks = async () => {
+    const response = await fetch(`${API_BASE_URL}/status`);
+    if (response.ok) {
+      const data = await response.json();
+      setTasks(data.tasks);
+      // Collect all unique index names
+      const allScores = data.tasks.flatMap((t: PdfTask) => Object.keys(t.result?.metadata?.analysisScores || {}));
+      const uniqueScores = Array.from(new Set(allScores)) as string[];
+      setIndexNames(uniqueScores);
+      if (uniqueScores.length > 0 && !activeIndex) {
+        setActiveIndex(uniqueScores[0] as string);
+      }
+    }
+  };
+
+  // Prepare chart data for the active index
+  const getChartData = (indexName: string) => {
+    // Only include tasks with a value for this index
+    const filtered = tasks.filter(t => t.result?.metadata?.analysisScores && t.result.metadata.analysisScores[indexName] !== undefined);
+    // Sort by inferredTimestamp or createdAt
+    filtered.sort((a, b) => {
+      const aTime = new Date(a.result?.metadata?.inferredTimestamp || a.createdAt).getTime();
+      const bTime = new Date(b.result?.metadata?.inferredTimestamp || b.createdAt).getTime();
+      return aTime - bTime;
     });
-
-    // Add a few more sample events if we have files
-    if (uploadedFiles.length > 0) {
-      const sampleEvents = [
+    return {
+      labels: filtered.map(t => t.result?.metadata?.inferredTimestamp ? new Date(t.result.metadata.inferredTimestamp).toLocaleDateString() : new Date(t.createdAt).toLocaleDateString()),
+      datasets: [
         {
-          id: 'sample-1',
-          documentName: 'Analysis Summary',
-          time: '2:30 PM',
-          title: 'Cross-document Pattern Analysis',
-          summary: 'Recurring themes identified across documents',
-          details: 'Analysis reveals consistent patterns in technical terminology usage, suggesting documents are part of a coordinated communication strategy. Common themes include emphasis on innovation, customer-centric language, and future-focused messaging.',
-          color: 'bg-purple-500',
-          type: 'positive' as const
-        },
-        {
-          id: 'sample-2',
-          documentName: 'Sentiment Analysis',
-          time: '3:45 PM',
-          title: 'Emotional Tone Variations',
-          summary: 'Notable sentiment changes detected',
-          details: 'Sentiment analysis shows a progression from cautious optimism in early documents to confident assertion in later materials. This evolution suggests growing confidence in the subject matter or audience familiarity.',
-          color: 'bg-teal-500',
-          type: 'neutral' as const
+          label: indexName.charAt(0).toUpperCase() + indexName.slice(1),
+          data: filtered.map(t => t.result!.metadata.analysisScores![indexName]),
+          borderColor: '#6366f1',
+          backgroundColor: 'rgba(99,102,241,0.1)',
+          tension: 0.3,
+          pointRadius: 5,
+          pointHoverRadius: 7,
         }
-      ];
-      events.push(...sampleEvents);
-    }
-
-    return events;
+      ]
+    };
   };
-
-  const timelineEvents = generateTimelineEvents();
-
-  const toggleEventExpansion = (eventId: string) => {
-    const newExpanded = new Set(expandedEvents);
-    if (newExpanded.has(eventId)) {
-      newExpanded.delete(eventId);
-    } else {
-      newExpanded.add(eventId);
-    }
-    setExpandedEvents(newExpanded);
-  };
-
-  if (uploadedFiles.length === 0) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center max-w-md px-6">
-          <BarChart2 className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-slate-700 mb-2">No Documents for Analysis</h3>
-          <p className="text-sm text-slate-500">
-            Upload PDF documents to see event timeline analysis with document insights and tone changes.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="p-6 border-b border-slate-200">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-2 h-8 bg-gradient-to-b from-blue-500 to-purple-500 rounded-full"></div>
-          <div>
-            <h3 className="text-lg font-semibold text-slate-800">Document Analysis Timeline</h3>
-            <p className="text-sm text-slate-600">{timelineEvents.length} insights discovered</p>
-          </div>
-        </div>
-      </div>
-
-      <ScrollArea className="flex-1">
-        <div className="p-6">
-          <div className="relative">
-            {/* Timeline line */}
-            <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-gradient-to-b from-slate-300 via-slate-200 to-slate-100"></div>
-            
-            {/* Timeline events */}
-            <div className="space-y-6">
-              {timelineEvents.map((event, index) => (
-                <div key={event.id} className="relative">
-                  {/* Timeline dot */}
-                  <div className={`absolute left-6 w-4 h-4 rounded-full ${event.color} border-4 border-white shadow-lg z-10`}></div>
-                  
-                  {/* Event card */}
-                  <div className="ml-16">
-                    <Card className="border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-                              <Clock className="w-3 h-3" />
-                              {event.time}
-                              <span className="mx-1">•</span>
-                              <FileText className="w-3 h-3" />
-                              {event.documentName}
-                            </div>
-                            <CardTitle className="text-base text-slate-800">{event.title}</CardTitle>
-                            <p className="text-sm text-slate-600 mt-1">{event.summary}</p>
-                          </div>
-                          <Collapsible>
-                            <CollapsibleTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => toggleEventExpansion(event.id)}
-                                className="p-1 h-auto"
-                              >
-                                {expandedEvents.has(event.id) ? (
-                                  <ChevronDown className="w-4 h-4" />
-                                ) : (
-                                  <ChevronRight className="w-4 h-4" />
-                                )}
-                              </Button>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                              <CardContent className="pt-3 pl-0 pr-0 pb-0">
-                                <div className="bg-slate-50 rounded-lg p-4 text-sm text-slate-700 leading-relaxed">
-                                  {event.details}
-                                </div>
-                              </CardContent>
-                            </CollapsibleContent>
-                          </Collapsible>
-                        </div>
-                      </CardHeader>
-                    </Card>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </ScrollArea>
+    <div className="h-full p-6">
+      <h3 className="text-lg font-semibold text-slate-800 mb-4">Analysis Time Series</h3>
+      {indexNames.length === 0 ? (
+        <div className="text-slate-500">No analysis indices found.</div>
+      ) : (
+        <Tabs value={activeIndex || undefined} onValueChange={setActiveIndex} className="w-full">
+          <TabsList className="mb-4">
+            {indexNames.map(name => (
+              <TabsTrigger key={name} value={name} className="capitalize">
+                {name.replace(/_/g, ' ')}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {indexNames.map(name => (
+            <TabsContent key={name} value={name} className="space-y-6">
+              <div className="bg-white rounded-lg shadow p-4">
+                <Line
+                  data={getChartData(name)}
+                  options={{
+                    responsive: true,
+                    plugins: {
+                      legend: { display: false },
+                      title: { display: false },
+                      tooltip: { enabled: true }
+                    },
+                    scales: {
+                      y: { min: 0, max: 1, title: { display: true, text: 'Score' } },
+                      x: { title: { display: true, text: 'Date' } }
+                    }
+                  }}
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {tasks.filter(t => t.result?.metadata?.analysisScores && t.result.metadata.analysisScores[name] !== undefined)
+                  .sort((a, b) => {
+                    const aTime = new Date(a.result?.metadata?.inferredTimestamp || a.createdAt).getTime();
+                    const bTime = new Date(b.result?.metadata?.inferredTimestamp || b.createdAt).getTime();
+                    return aTime - bTime;
+                  })
+                  .map(task => (
+                  <Card key={task.id} className="p-4 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="capitalize">
+                        {task.status}
+                      </Badge>
+                      <span className="font-medium text-slate-900 truncate">{task.filename}</span>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Date: {task.result?.metadata?.inferredTimestamp ? new Date(task.result.metadata.inferredTimestamp).toLocaleString() : new Date(task.createdAt).toLocaleString()}
+                    </div>
+                    <div className="text-sm">
+                      <span className="font-medium">{name.replace(/_/g, ' ')}:</span> {((task.result!.metadata.analysisScores![name] ?? 0) * 100).toFixed(0)}%
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
     </div>
   );
 };

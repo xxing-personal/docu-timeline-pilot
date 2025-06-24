@@ -309,4 +309,47 @@ export class PDFQueueService {
       return false;
     }
   }
+
+  // Update task result (for editing metadata, scores, etc.)
+  public async updateTaskResult(taskId: string, result: any): Promise<boolean> {
+    try {
+      const success = await this.databaseService.updateTask(taskId, { result });
+      if (success) {
+        console.log(`✅ Updated result for task ${taskId}`);
+      }
+      return success;
+    } catch (error) {
+      console.error(`❌ Failed to update result for task ${taskId}:`, error);
+      return false;
+    }
+  }
+
+  // Regenerate a completed task
+  public async regenerateTask(taskId: string): Promise<boolean> {
+    try {
+      const task = await this.databaseService.getTask(taskId);
+      if (!task) {
+        console.error(`❌ Task ${taskId} not found for regeneration`);
+        return false;
+      }
+
+      // Reset task to pending status
+      await this.databaseService.updateTask(taskId, {
+        status: 'pending',
+        startedAt: undefined,
+        completedAt: undefined,
+        error: undefined,
+        result: undefined
+      });
+
+      // Add task back to queue
+      this.queue.push(task);
+      console.log(`🔄 Regenerated task ${taskId} - added back to queue`);
+      
+      return true;
+    } catch (error) {
+      console.error(`❌ Failed to regenerate task ${taskId}:`, error);
+      return false;
+    }
+  }
 } 

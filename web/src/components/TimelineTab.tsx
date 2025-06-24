@@ -24,6 +24,11 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { getApiBaseUrl } from "@/lib/utils";
+import { Menu } from '@headlessui/react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 
 interface PdfTask {
   id: string;
@@ -72,6 +77,10 @@ interface SortableTaskItemProps {
   getStatusColor: (status: string) => string;
   getProcessingEvents: (task: PdfTask) => any[];
   switchToViewerTab: () => void;
+  canShowMenu: boolean;
+  onChangeTimestamp: (task: PdfTask) => void;
+  onRegenerate: (task: PdfTask) => void;
+  onEditScore: (task: PdfTask) => void;
 }
 
 const SortableTaskItem = ({ 
@@ -82,7 +91,11 @@ const SortableTaskItem = ({
   getStatusIcon, 
   getStatusColor, 
   getProcessingEvents,
-  switchToViewerTab
+  switchToViewerTab,
+  canShowMenu,
+  onChangeTimestamp,
+  onRegenerate,
+  onEditScore
 }: SortableTaskItemProps) => {
   const {
     attributes,
@@ -284,10 +297,48 @@ const SortableTaskItem = ({
             <Eye className="w-3 h-3 mr-1" />
             View PDF
           </Button>
-          {task.status === 'completed' && task.hasResult && (
-            <Button variant="outline" size="sm">
-              View Summary
-            </Button>
+          {/* Action menu, only show if canShowMenu is true */}
+          {canShowMenu && (
+            <div className="relative">
+              <Menu>
+                <Menu.Button as={Button} variant="outline" size="icon" className="ml-2">
+                  <span className="sr-only">Open menu</span>
+                  <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                </Menu.Button>
+                <Menu.Items className="absolute right-0 mt-2 w-48 origin-top-right bg-white border border-slate-200 rounded shadow-lg z-10">
+                  <Menu.Item>
+                    {({ active }) => (
+                      <button
+                        className={`w-full text-left px-4 py-2 text-sm ${active ? 'bg-slate-100' : ''}`}
+                        onClick={() => onChangeTimestamp(task)}
+                      >
+                        Change Timestamp
+                      </button>
+                    )}
+                  </Menu.Item>
+                  <Menu.Item>
+                    {({ active }) => (
+                      <button
+                        className={`w-full text-left px-4 py-2 text-sm ${active ? 'bg-slate-100' : ''}`}
+                        onClick={() => onRegenerate(task)}
+                      >
+                        Regenerate Summary
+                      </button>
+                    )}
+                  </Menu.Item>
+                  <Menu.Item>
+                    {({ active }) => (
+                      <button
+                        className={`w-full text-left px-4 py-2 text-sm ${active ? 'bg-slate-100' : ''}`}
+                        onClick={() => onEditScore(task)}
+                      >
+                        Edit Score
+                      </button>
+                    )}
+                  </Menu.Item>
+                </Menu.Items>
+              </Menu>
+            </div>
           )}
         </div>
       </Card>
@@ -299,6 +350,16 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
   const [tasks, setTasks] = useState<PdfTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [reordering, setReordering] = useState(false);
+  const [finalReorderingFinished, setFinalReorderingFinished] = useState(false); // Track if manual reorder is allowed
+  
+  // Dialog states
+  const [timestampDialogOpen, setTimestampDialogOpen] = useState(false);
+  const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
+  const [scoreDialogOpen, setScoreDialogOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<PdfTask | null>(null);
+  const [newTimestamp, setNewTimestamp] = useState('');
+  const [editingScores, setEditingScores] = useState<Record<string, number>>({});
+  const [actionLoading, setActionLoading] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -310,6 +371,7 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
   // Fetch all tasks on component mount and auto-refresh every 5 seconds
   useEffect(() => {
     fetchTasks(false); // Initial load without loading state
+    fetchAutoReorderStatus(); // Check if manual reorder is allowed
     const interval = setInterval(() => fetchTasks(false), 5000); // Auto-refresh every 5 seconds silently
     return () => clearInterval(interval);
   }, []);
@@ -344,6 +406,21 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
       if (showLoading) {
         setLoading(false);
       }
+    }
+  };
+
+  const fetchAutoReorderStatus = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/auto-reorder-status`);
+      if (response.ok) {
+        const status = await response.json();
+        setFinalReorderingFinished(status.completed);
+        console.log('Auto-reorder status:', status);
+      } else {
+        console.error('Failed to fetch auto-reorder status');
+      }
+    } catch (error) {
+      console.error('Error fetching auto-reorder status:', error);
     }
   };
 
@@ -406,6 +483,9 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
         // Revert the optimistic update on failure
         setTasks(tasks);
         console.error('Failed to reorder tasks');
+      } else {
+        // Update auto-reorder status after successful reorder
+        await fetchAutoReorderStatus();
       }
     } catch (error) {
       // Revert the optimistic update on error
@@ -512,6 +592,109 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
     return events;
   };
 
+  // Handlers for menu actions
+  const onChangeTimestamp = (task: PdfTask) => {
+    setSelectedTask(task);
+    setNewTimestamp(task.result?.metadata?.inferredTimestamp || '');
+    setTimestampDialogOpen(true);
+  };
+  
+  const onRegenerate = (task: PdfTask) => {
+    setSelectedTask(task);
+    setRegenerateDialogOpen(true);
+  };
+  
+  const onEditScore = (task: PdfTask) => {
+    setSelectedTask(task);
+    setEditingScores(task.result?.metadata?.analysisScores || {});
+    setScoreDialogOpen(true);
+  };
+
+  // API call handlers
+  const handleChangeTimestamp = async () => {
+    if (!selectedTask || !newTimestamp) return;
+    
+    setActionLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/${selectedTask.id}/change-timestamp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newTimestamp })
+      });
+      
+      if (response.ok) {
+        setTimestampDialogOpen(false);
+        fetchTasks(false); // Refresh tasks
+      } else {
+        const error = await response.json();
+        alert(`Failed to change timestamp: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Error changing timestamp:', error);
+      alert('Failed to change timestamp');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    if (!selectedTask) return;
+    
+    setActionLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/${selectedTask.id}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        setRegenerateDialogOpen(false);
+        fetchTasks(false); // Refresh tasks
+      } else {
+        const error = await response.json();
+        alert(`Failed to regenerate: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Error regenerating task:', error);
+      alert('Failed to regenerate task');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleEditScore = async () => {
+    if (!selectedTask) return;
+    
+    setActionLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/${selectedTask.id}/edit-score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scores: editingScores })
+      });
+      
+      if (response.ok) {
+        setScoreDialogOpen(false);
+        fetchTasks(false); // Refresh tasks
+      } else {
+        const error = await response.json();
+        alert(`Failed to edit scores: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Error editing scores:', error);
+      alert('Failed to edit scores');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const updateScore = (key: string, value: number[]) => {
+    setEditingScores(prev => ({
+      ...prev,
+      [key]: value[0]
+    }));
+  };
+
   // Show empty state when there are no tasks (regardless of loading state from auto-polling)
   if (tasks.length === 0) {
     return (
@@ -564,7 +747,8 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
               <div className="space-y-6">
                 {tasks.map((task) => {
                   const isSelected = selectedPdf === task.filename;
-                  
+                  // Only show menu if final reordering is finished and task is completed
+                  const canShowMenu = finalReorderingFinished && task.status === 'completed';
                   return (
                     <SortableTaskItem
                       key={task.id}
@@ -576,6 +760,10 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
                       getStatusColor={getStatusColor}
                       getProcessingEvents={getProcessingEvents}
                       switchToViewerTab={switchToViewerTab}
+                      canShowMenu={canShowMenu}
+                      onChangeTimestamp={onChangeTimestamp}
+                      onRegenerate={onRegenerate}
+                      onEditScore={onEditScore}
                     />
                   );
                 })}
@@ -585,7 +773,88 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
         </div>
       </ScrollArea>
 
+      {/* Timestamp Change Dialog */}
+      <Dialog open={timestampDialogOpen} onOpenChange={setTimestampDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Document Date</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="timestamp">New Date & Time (ISO 8601 format)</Label>
+              <Input
+                id="timestamp"
+                type="datetime-local"
+                value={newTimestamp ? new Date(newTimestamp).toISOString().slice(0, 16) : ''}
+                onChange={(e) => setNewTimestamp(new Date(e.target.value).toISOString())}
+                placeholder="YYYY-MM-DDTHH:MM"
+              />
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => setTimestampDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleChangeTimestamp} disabled={actionLoading}>
+                {actionLoading ? 'Updating...' : 'Update'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
+      {/* Regenerate Confirmation Dialog */}
+      <Dialog open={regenerateDialogOpen} onOpenChange={setRegenerateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Regenerate Summary</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p>Are you sure you want to regenerate the summary for "{selectedTask?.filename}"? This will reset the task and process it again.</p>
+            <div className="flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => setRegenerateDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleRegenerate} disabled={actionLoading}>
+                {actionLoading ? 'Regenerating...' : 'Regenerate'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Score Edit Dialog */}
+      <Dialog open={scoreDialogOpen} onOpenChange={setScoreDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Analysis Scores</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {Object.entries(editingScores).map(([key, value]) => (
+              <div key={key} className="space-y-2">
+                <Label className="text-sm font-medium">
+                  {key.charAt(0).toUpperCase() + key.slice(1)}: {(value * 100).toFixed(0)}%
+                </Label>
+                <Slider
+                  value={[value]}
+                  onValueChange={(val) => updateScore(key, val)}
+                  max={1}
+                  min={0}
+                  step={0.01}
+                  className="w-full"
+                />
+              </div>
+            ))}
+            <div className="flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => setScoreDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleEditScore} disabled={actionLoading}>
+                {actionLoading ? 'Updating...' : 'Update'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
