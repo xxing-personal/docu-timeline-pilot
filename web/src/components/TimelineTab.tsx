@@ -148,7 +148,8 @@ const SortableTaskItem = ({
       hasResult: !!task.result,
       hasSummary: !!task.result?.summary,
       summaryLength: task.result?.summary?.length,
-      parsedSummary: summaryData
+      parsedSummary: summaryData,
+      inferredTimestamp: task.result?.metadata?.inferredTimestamp
     });
   }
 
@@ -216,6 +217,13 @@ const SortableTaskItem = ({
             {task.completedAt && (
               <div className="text-sm text-slate-600 bg-slate-50 p-2 rounded">
                 <span className="font-medium">Processed:</span> {formatDate(task.completedAt)}
+              </div>
+            )}
+
+            {/* Inferred timestamp */}
+            {task.result?.metadata?.inferredTimestamp && (
+              <div className="text-sm text-slate-600 bg-purple-50 p-2 rounded border-l-4 border-purple-400">
+                <span className="font-medium">Document Date:</span> {formatDate(task.result.metadata.inferredTimestamp)}
               </div>
             )}
 
@@ -324,7 +332,8 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
             filename: t.filename,
             status: t.status,
             hasResult: t.hasResult,
-            hasSummary: !!t.result?.summary
+            hasSummary: !!t.result?.summary,
+            hasInferredTimestamp: !!t.result?.metadata?.inferredTimestamp
           }))
         });
         setTasks(data.tasks);
