@@ -139,7 +139,7 @@ app.get('/status/:taskId', async (req, res) => {
 // Get all tasks status
 app.get('/status', async (req, res) => {
   try {
-    const allTasks = (await queueService.getAllTasks()).map((task: any) => ({
+    let allTasks = (await queueService.getAllTasks()).map((task: any) => ({
       id: task.id,
       filename: task.filename,
       status: task.status,
@@ -147,10 +147,18 @@ app.get('/status', async (req, res) => {
       startedAt: task.startedAt,
       completedAt: task.completedAt,
       error: task.error,
-      // Include result for completed tasks so frontend can display summaries
       result: task.result,
-      hasResult: !!task.result
+      hasResult: !!task.result,
+      sortingTimestamp: task.sortingTimestamp
     }));
+    
+    // Sort by sortingTimestamp (ascending)
+    allTasks = allTasks.sort((a, b) => {
+      if (!a.sortingTimestamp && !b.sortingTimestamp) return 0;
+      if (!a.sortingTimestamp) return 1;
+      if (!b.sortingTimestamp) return -1;
+      return new Date(a.sortingTimestamp).getTime() - new Date(b.sortingTimestamp).getTime();
+    });
     
     const queueStats = await queueService.getQueueStats();
     

@@ -210,23 +210,25 @@ const SortableTaskItem = ({
           </div>
         )}
 
-        {/* Structured Summary for completed tasks */}
-        {task.status === 'completed' && summaryData && (
-          <div className="space-y-3 mb-3">
-            {/* Processing time */}
+        {/* Processed and Inferred timestamp in the same line */}
+        {(task.completedAt || task.result?.metadata?.inferredTimestamp) && (
+          <div className="flex flex-row gap-4 items-center mb-2">
             {task.completedAt && (
               <div className="text-sm text-slate-600 bg-slate-50 p-2 rounded">
                 <span className="font-medium">Processed:</span> {formatDate(task.completedAt)}
               </div>
             )}
-
-            {/* Inferred timestamp */}
             {task.result?.metadata?.inferredTimestamp && (
               <div className="text-sm text-slate-600 bg-purple-50 p-2 rounded border-l-4 border-purple-400">
                 <span className="font-medium">Document Date:</span> {formatDate(task.result.metadata.inferredTimestamp)}
               </div>
             )}
+          </div>
+        )}
 
+        {/* Structured Summary for completed tasks */}
+        {task.status === 'completed' && summaryData && (
+          <div className="space-y-3 mb-3">
             {/* One sentence summary */}
             {summaryData.oneSentenceSummary && (
               <div className="bg-blue-50 p-3 rounded border-l-4 border-blue-400">

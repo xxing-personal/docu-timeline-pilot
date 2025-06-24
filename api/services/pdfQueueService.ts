@@ -78,14 +78,15 @@ export class PDFQueueService {
   // 4. Public method to add new PDF tasks to the queue
   public async addTask(filename: string, path: string): Promise<string> {
     const taskId = `pdf_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+    const now = new Date();
     const task: PDFTask = {
       id: taskId,
       filename,
       path,
       status: 'pending',
-      createdAt: new Date(),
-      displayOrder: this.taskOrder.length
+      createdAt: now,
+      displayOrder: this.taskOrder.length,
+      sortingTimestamp: now.toISOString()
     };
     
     // Store task in database
@@ -253,6 +254,13 @@ export class PDFQueueService {
           return timestampA - timestampB;
         })
         .map(task => task.id);
+      
+      // Update sortingTimestamp for each task
+      for (const task of tasksWithTimestamps) {
+        await this.databaseService.updateTask(task.id, {
+          sortingTimestamp: task.result?.metadata?.inferredTimestamp || task.sortingTimestamp
+        });
+      }
       
       console.log(`[QUEUE] Auto-reordering ${sortedTaskIds.length} tasks by inferred timestamp`);
       
