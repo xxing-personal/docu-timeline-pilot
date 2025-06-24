@@ -82,10 +82,26 @@ export class DatabaseService {
 
   // Task management methods
   async addTask(task: PDFTask): Promise<void> {
-    await this.ensureInitialized();
-    await this.db.read();
-    this.db.data!.tasks.push(task);
-    await this.db.write();
+    console.log(`[DATABASE] Adding task to database: ${task.id} (${task.filename})`);
+    try {
+      await this.ensureInitialized();
+      console.log(`[DATABASE] Database initialized, reading current data`);
+      await this.db.read();
+      
+      if (!this.db.data) {
+        console.error(`[DATABASE] Database data is null after read`);
+        throw new Error('Database data is null');
+      }
+      
+      console.log(`[DATABASE] Current task count: ${this.db.data.tasks.length}`);
+      this.db.data.tasks.push(task);
+      console.log(`[DATABASE] Task added to memory, writing to disk`);
+      await this.db.write();
+      console.log(`[DATABASE] Successfully added task ${task.id} to database`);
+    } catch (error) {
+      console.error(`[DATABASE] Failed to add task ${task.id}:`, error);
+      throw error;
+    }
   }
 
   async updateTask(taskId: string, updates: Partial<PDFTask>): Promise<boolean> {

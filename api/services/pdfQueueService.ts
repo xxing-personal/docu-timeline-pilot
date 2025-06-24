@@ -84,29 +84,41 @@ export class PDFQueueService {
 
   // 4. Public method to add new PDF tasks to the queue
   public async addTask(filename: string, path: string): Promise<string> {
-    const taskId = `pdf_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const now = new Date();
-    const task: PDFTask = {
-      id: taskId,
-      filename,
-      path,
-      status: 'pending',
-      createdAt: now,
-      displayOrder: this.taskOrder.length,
-      sortingTimestamp: now.toISOString()
-    };
+    console.log(`[QUEUE] Starting task creation for: ${filename}`);
     
-    // Store task in database
-    await this.databaseService.addTask(task);
-    
-    // Add task to the order array
-    this.taskOrder.push(taskId);
-    
-    // Add task to the queue
-    this.queue.push(task);
-    console.log(`📥 Added PDF Task #${taskId} to the queue. Current length: ${this.queue.length()}`);
-    
-    return taskId;
+    try {
+      const taskId = `pdf_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const now = new Date();
+      const task: PDFTask = {
+        id: taskId,
+        filename,
+        path,
+        status: 'pending',
+        createdAt: now,
+        displayOrder: this.taskOrder.length,
+        sortingTimestamp: now.toISOString()
+      };
+      
+      console.log(`[QUEUE] Created task object: ${taskId}`);
+      
+      // Store task in database
+      console.log(`[QUEUE] Storing task in database: ${taskId}`);
+      await this.databaseService.addTask(task);
+      console.log(`[QUEUE] Successfully stored task in database: ${taskId}`);
+      
+      // Add task to the order array
+      this.taskOrder.push(taskId);
+      console.log(`[QUEUE] Added task to order array: ${taskId} (position: ${this.taskOrder.length - 1})`);
+      
+      // Add task to the queue
+      this.queue.push(task);
+      console.log(`📥 Added PDF Task #${taskId} to the queue. Current length: ${this.queue.length()}`);
+      
+      return taskId;
+    } catch (error) {
+      console.error(`[QUEUE] Failed to create task for ${filename}:`, error);
+      throw error;
+    }
   }
 
   // Get task by ID
@@ -229,6 +241,11 @@ export class PDFQueueService {
         message: 'Auto-reorder by inferred timestamp not yet completed. Manual reordering is disabled.'
       };
     }
+  }
+
+  // Get task order array for debugging
+  public getTaskOrder(): string[] {
+    return [...this.taskOrder];
   }
 
   private async autoReorderByInferredTimestamp(): Promise<void> {

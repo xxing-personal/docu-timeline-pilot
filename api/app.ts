@@ -62,6 +62,8 @@ app.post('/upload', upload.array('pdf', 10), async (req, res) => {
     const files = req.files as Express.Multer.File[];
     const results = [];
     
+    console.log(`[UPLOAD] Starting upload of ${files.length} files`);
+    
     // Sort files by upload timestamp (creation time)
     const sortedFiles = files.sort((a, b) => {
       const statsA = fs.statSync(a.path);
@@ -73,15 +75,23 @@ app.post('/upload', upload.array('pdf', 10), async (req, res) => {
     
     // Add each file to queue in sorted order
     for (const file of sortedFiles) {
-      const taskId = await queueService.addTask(file.filename, file.path);
-      results.push({
-        taskId,
-        filename: file.filename,
-        status: 'pending'
-      });
+      console.log(`[UPLOAD] Adding file to queue: ${file.filename} (${file.path})`);
+      try {
+        const taskId = await queueService.addTask(file.filename, file.path);
+        console.log(`[UPLOAD] Successfully created task ${taskId} for ${file.filename}`);
+        results.push({
+          taskId,
+          filename: file.filename,
+          status: 'pending'
+        });
+      } catch (taskError) {
+        console.error(`[UPLOAD] Failed to create task for ${file.filename}:`, taskError);
+        throw taskError; // This will trigger the cleanup
+      }
     }
     
     const queueStats = await queueService.getQueueStats();
+    console.log(`[UPLOAD] Upload completed successfully. Created ${results.length} tasks. Queue length: ${queueStats.queue.length}`);
     
     res.json({
       message: `${files.length} PDF(s) uploaded successfully and queued for processing in upload timestamp order!`,
@@ -89,14 +99,16 @@ app.post('/upload', upload.array('pdf', 10), async (req, res) => {
       queueLength: queueStats.queue.length
     });
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('[UPLOAD] Upload error:', error);
     
     // Clean up uploaded files if task creation failed
     if (req.files) {
       const files = req.files as Express.Multer.File[];
+      console.log(`[UPLOAD] Cleaning up ${files.length} uploaded files due to error`);
       files.forEach(file => {
         if (fs.existsSync(file.path)) {
           fs.unlinkSync(file.path);
+          console.log(`[UPLOAD] Deleted file: ${file.path}`);
         }
       });
     }
@@ -622,6 +634,65 @@ app.post('/chat', async (req, res) => {
   } catch (error) {
     console.error('Chat error:', error);
     res.status(500).json({ error: 'Failed to process chat request' });
+  }
+});
+
+// Diagnostic endpoint to help debug missing tasks
+app.get('/debug/state', async (req, res) => {
+  try {
+    const allTasks = await queueService.getAllTasks();
+    const queueStats = await queueService.getQueueStats();
+    const databaseInfo = await queueService.getDatabaseService().getDatabaseInfo();
+    
+    // Check file system state
+    const uploadDir = path.join(__dirname, '../uploads');
+    const uploadFiles = fs.existsSync(uploadDir) 
+      ? fs.readdirSync(uploadDir).filter(f => f.endsWith('.pdf'))
+      : [];
+    
+    const extractedTextsDir = path.join(__dirname, 'extracted-texts');
+    const extractedFiles = fs.existsSync(extractedTextsDir)
+      ? fs.readdirSync(extractedTextsDir).filter(f => f.endsWith('.md'))
+      : [];
+    
+    res.json({
+      timestamp: new Date().toISOString(),
+      database: {
+        totalTasks: allTasks.length,
+        taskIds: allTasks.map(t => ({ id: t.id, filename: t.filename, status: t.status })),
+        databaseInfo
+      },
+      queue: {
+        length: queueStats.queue.length,
+        working: queueStats.queue.working,
+        taskOrder: queueService.getTaskOrder ? queueService.getTaskOrder() : 'Not available'
+      },
+      filesystem: {
+        uploadFiles: uploadFiles.map(f => ({
+          filename: f,
+          path: path.join(uploadDir, f),
+          exists: fs.existsSync(path.join(uploadDir, f))
+        })),
+        extractedFiles: extractedFiles.map(f => ({
+          filename: f,
+          path: path.join(extractedTextsDir, f),
+          exists: fs.existsSync(path.join(extractedTextsDir, f))
+        }))
+      },
+      analysis: {
+        tasksWithoutFiles: allTasks.filter(t => !fs.existsSync(t.path)),
+        filesWithoutTasks: uploadFiles.filter(f => 
+          !allTasks.some(t => t.filename === f)
+        ),
+        completedTasksWithoutExtractedText: allTasks.filter(t => 
+          t.status === 'completed' && 
+          !extractedFiles.some(ef => ef === `${t.filename}_extracted.md`)
+        )
+      }
+    });
+  } catch (error) {
+    console.error('Debug state error:', error);
+    res.status(500).json({ error: 'Failed to get debug state' });
   }
 });
 
