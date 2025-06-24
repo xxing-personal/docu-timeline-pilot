@@ -13,7 +13,7 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="h-screen overflow-hidden bg-gradient-to-br from-slate-50 to-slate-100">
       <ResizablePanelGroup direction="horizontal" className="min-h-screen">
         <ResizablePanel defaultSize={38} minSize={30} maxSize={50}>
           <LeftPane 

@@ -79,7 +79,7 @@ const AnalysisTab = () => {
   };
 
   return (
-    <div className="h-full p-6">
+    <div className="p-6">
       <h3 className="text-lg font-semibold text-slate-800 mb-4">Analysis Time Series</h3>
       {indexNames.length === 0 ? (
         <div className="text-slate-500">No analysis indices found.</div>
@@ -94,7 +94,7 @@ const AnalysisTab = () => {
           </TabsList>
           {indexNames.map(name => (
             <TabsContent key={name} value={name} className="space-y-6">
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-white rounded-lg shadow p-4 max-h-[400px]">
                 <Line
                   data={getChartData(name)}
                   options={{

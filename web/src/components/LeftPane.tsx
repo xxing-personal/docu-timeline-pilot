@@ -38,7 +38,7 @@ const LeftPane = ({ selectedPdf, setSelectedPdf, uploadedFiles, setUploadedFiles
           </TabsTrigger>
         </TabsList>
         
-        <TabsContent value="pdfs" className="h-full m-0">
+        <TabsContent value="pdfs" className="h-full m-0 overflow-y-auto">
           <PdfsTab 
             uploadedFiles={uploadedFiles}
             setUploadedFiles={setUploadedFiles}
@@ -47,11 +47,11 @@ const LeftPane = ({ selectedPdf, setSelectedPdf, uploadedFiles, setUploadedFiles
           />
         </TabsContent>
         
-        <TabsContent value="chat" className="h-full m-0">
+        <TabsContent value="chat" className="h-full m-0 overflow-y-auto">
           <ChatTab uploadedFiles={uploadedFiles} />
         </TabsContent>
         
-        <TabsContent value="viewer" className="h-full m-0">
+        <TabsContent value="viewer" className="h-full m-0 overflow-y-auto">
           <PdfViewerTab selectedPdf={selectedPdf} />
         </TabsContent>
       </Tabs>

@@ -38,15 +38,15 @@ const RightPane = ({ selectedPdf, uploadedFiles, setSelectedPdf, switchToViewerT
           </TabsTrigger>
         </TabsList>
         
-        <TabsContent value="timeline" className="h-full m-0">
+        <TabsContent value="timeline" className="h-full m-0 overflow-y-auto">
           <TimelineTab uploadedFiles={uploadedFiles} selectedPdf={selectedPdf} setSelectedPdf={setSelectedPdf} switchToViewerTab={switchToViewerTab} />
         </TabsContent>
         
-        <TabsContent value="analysis" className="h-full m-0">
-          <AnalysisTab uploadedFiles={uploadedFiles} />
+        <TabsContent value="analysis" className="h-full m-0 overflow-y-auto">
+          <AnalysisTab />
         </TabsContent>
         
-        <TabsContent value="summaries" className="h-full m-0">
+        <TabsContent value="summaries" className="h-full m-0 overflow-y-auto">
           <SummarizationTab uploadedFiles={uploadedFiles} />
         </TabsContent>
       </Tabs>
