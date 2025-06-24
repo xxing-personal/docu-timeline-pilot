@@ -236,7 +236,7 @@ const SortableTaskItem = ({
               </div>
             )}
             {task.result?.metadata?.inferredTimestamp && (
-              <div className="text-sm text-slate-600 bg-purple-50 p-2 rounded border-l-4 border-purple-400">
+              <div className="text-sm text-slate-600 bg-slate-50 p-2 rounded">
                 <span className="font-medium">Document Date:</span> {formatDate(task.result.metadata.inferredTimestamp)}
               </div>
             )}
