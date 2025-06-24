@@ -66,11 +66,22 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const [cursorPosition, setCursorPosition] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   // Fetch completed tasks on component mount
   useEffect(() => {
     fetchTasks();
   }, []);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      const scrollElement = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (scrollElement) {
+        scrollElement.scrollTop = scrollElement.scrollHeight;
+      }
+    }
+  }, [messages]);
 
   const fetchTasks = async () => {
     try {
@@ -284,7 +295,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
     <div className="h-[calc(100vh-200px)] flex flex-col p-4">
       {/* Chat Messages - takes most of the space */}
       <div className="flex-1 min-h-0">
-        <ScrollArea className="h-full">
+        <ScrollArea ref={scrollAreaRef} className="h-full">
           <div className="space-y-4 pr-4">
             {messages.map((message) => (
               <div
