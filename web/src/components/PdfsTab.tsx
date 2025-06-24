@@ -2,10 +2,8 @@ import React, { useCallback, useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Upload, FileText, Search, MoreVertical, Eye, Trash2, Loader2, RefreshCw, AlertTriangle, Edit3, Calendar } from 'lucide-react';
+import { Upload, FileText, Search, MoreVertical, Eye, Trash2, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { getApiBaseUrl } from "@/lib/utils";
 
@@ -36,12 +34,6 @@ const PdfsTab = ({ uploadedFiles, setUploadedFiles, selectedPdf, setSelectedPdf 
   const [serverFiles, setServerFiles] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
-  const [editingTimestamp, setEditingTimestamp] = useState<{
-    filename: string;
-    uploadedAt: string;
-    modifiedAt: string;
-  } | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
 
   // Fetch files from server on component mount
   useEffect(() => {
@@ -183,56 +175,6 @@ const PdfsTab = ({ uploadedFiles, setUploadedFiles, selectedPdf, setSelectedPdf 
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString();
-  };
-
-  const openEditTimestamp = (file: UploadedFile) => {
-    setEditingTimestamp({
-      filename: file.filename,
-      uploadedAt: new Date(file.uploadedAt).toISOString().slice(0, 16), // Format for datetime-local input
-      modifiedAt: new Date(file.modifiedAt).toISOString().slice(0, 16)
-    });
-  };
-
-  const saveTimestampChanges = async () => {
-    if (!editingTimestamp) return;
-
-    try {
-      setIsEditing(true);
-      
-      const response = await fetch(`${API_BASE_URL}/files/${encodeURIComponent(editingTimestamp.filename)}/timestamp`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          uploadedAt: new Date(editingTimestamp.uploadedAt).toISOString(),
-          modifiedAt: new Date(editingTimestamp.modifiedAt).toISOString(),
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update timestamp');
-      }
-
-      toast({
-        title: "Timestamp updated",
-        description: "File timestamp has been updated successfully.",
-      });
-
-      // Refresh the file list
-      await fetchServerFiles();
-      setEditingTimestamp(null);
-    } catch (error) {
-      console.error('Error updating timestamp:', error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update timestamp.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsEditing(false);
-    }
   };
 
   const deleteAllFiles = async () => {
@@ -393,10 +335,6 @@ const PdfsTab = ({ uploadedFiles, setUploadedFiles, selectedPdf, setSelectedPdf 
                     <Eye className="mr-2 h-4 w-4" />
                     View
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => openEditTimestamp(file)}>
-                    <Edit3 className="mr-2 h-4 w-4" />
-                    Edit Timestamp
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => removeFile(file.filename)} className="text-red-600">
                     <Trash2 className="mr-2 h-4 w-4" />
                     Remove
@@ -423,88 +361,6 @@ const PdfsTab = ({ uploadedFiles, setUploadedFiles, selectedPdf, setSelectedPdf 
           <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
         </div>
       )}
-
-      {/* Timestamp Editing Dialog */}
-      <Dialog open={!!editingTimestamp} onOpenChange={(open) => !open && setEditingTimestamp(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center space-x-2">
-              <Calendar className="w-5 h-5" />
-              <span>Edit Timestamp</span>
-            </DialogTitle>
-          </DialogHeader>
-          {editingTimestamp && (
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="filename" className="text-sm font-medium">
-                  File Name
-                </Label>
-                <Input
-                  id="filename"
-                  value={editingTimestamp.filename}
-                  disabled
-                  className="mt-1"
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="uploadedAt" className="text-sm font-medium">
-                  Upload Date & Time
-                </Label>
-                <Input
-                  id="uploadedAt"
-                  type="datetime-local"
-                  value={editingTimestamp.uploadedAt}
-                  onChange={(e) => setEditingTimestamp({
-                    ...editingTimestamp,
-                    uploadedAt: e.target.value
-                  })}
-                  className="mt-1"
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="modifiedAt" className="text-sm font-medium">
-                  Modified Date & Time
-                </Label>
-                <Input
-                  id="modifiedAt"
-                  type="datetime-local"
-                  value={editingTimestamp.modifiedAt}
-                  onChange={(e) => setEditingTimestamp({
-                    ...editingTimestamp,
-                    modifiedAt: e.target.value
-                  })}
-                  className="mt-1"
-                />
-              </div>
-              
-              <div className="flex justify-end space-x-2 pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => setEditingTimestamp(null)}
-                  disabled={isEditing}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={saveTimestampChanges}
-                  disabled={isEditing}
-                >
-                  {isEditing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    'Save Changes'
-                  )}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

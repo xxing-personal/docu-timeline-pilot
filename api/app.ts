@@ -292,51 +292,6 @@ app.get('/files/:filename', (req, res) => {
   }
 });
 
-// Update file timestamps
-app.patch('/files/:filename/timestamp', async (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const { uploadedAt, modifiedAt } = req.body;
-    const filePath = path.join(__dirname, '../uploads', filename);
-    
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: 'File not found' });
-      return;
-    }
-    
-    // Validate timestamps
-    if (!uploadedAt || !modifiedAt) {
-      res.status(400).json({ error: 'Both uploadedAt and modifiedAt are required' });
-      return;
-    }
-    
-    const uploadDate = new Date(uploadedAt);
-    const modifyDate = new Date(modifiedAt);
-    
-    if (isNaN(uploadDate.getTime()) || isNaN(modifyDate.getTime())) {
-      res.status(400).json({ error: 'Invalid timestamp format' });
-      return;
-    }
-    
-    // Update file timestamps using fs.promises.utimes
-    await fsPromises.utimes(filePath, modifyDate, modifyDate);
-    
-    // Note: We can't easily change the creation time on most systems
-    // The uploadedAt is stored in the database, so we'd need to update that too
-    // For now, we'll just update the modification time
-    
-    res.json({ 
-      message: 'File timestamps updated successfully',
-      filename: filename,
-      uploadedAt: uploadedAt,
-      modifiedAt: modifiedAt
-    });
-  } catch (error) {
-    console.error('Error updating file timestamps:', error);
-    res.status(500).json({ error: 'Failed to update file timestamps' });
-  }
-});
-
 // File management endpoints
 app.get('/files', async (req, res) => {
   try {
