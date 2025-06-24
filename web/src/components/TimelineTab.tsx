@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Clock, CheckCircle2, AlertCircle, Eye, Loader2, RefreshCw, GripVertical } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, AlertCircle, Eye, Loader2, RefreshCw, GripVertical, MoreVertical } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   DndContext,
@@ -24,11 +24,11 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { getApiBaseUrl } from "@/lib/utils";
-import { Menu } from '@headlessui/react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 interface PdfTask {
   id: string;
@@ -299,46 +299,25 @@ const SortableTaskItem = ({
           </Button>
           {/* Action menu, only show if canShowMenu is true */}
           {canShowMenu && (
-            <div className="relative">
-              <Menu>
-                <Menu.Button as={Button} variant="outline" size="icon" className="ml-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="ml-2">
+                  <MoreVertical className="w-4 h-4" />
                   <span className="sr-only">Open menu</span>
-                  <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-                </Menu.Button>
-                <Menu.Items className="absolute right-0 mt-2 w-48 origin-top-right bg-white border border-slate-200 rounded shadow-lg z-10">
-                  <Menu.Item>
-                    {({ active }) => (
-                      <button
-                        className={`w-full text-left px-4 py-2 text-sm ${active ? 'bg-slate-100' : ''}`}
-                        onClick={() => onChangeTimestamp(task)}
-                      >
-                        Change Timestamp
-                      </button>
-                    )}
-                  </Menu.Item>
-                  <Menu.Item>
-                    {({ active }) => (
-                      <button
-                        className={`w-full text-left px-4 py-2 text-sm ${active ? 'bg-slate-100' : ''}`}
-                        onClick={() => onRegenerate(task)}
-                      >
-                        Regenerate Summary
-                      </button>
-                    )}
-                  </Menu.Item>
-                  <Menu.Item>
-                    {({ active }) => (
-                      <button
-                        className={`w-full text-left px-4 py-2 text-sm ${active ? 'bg-slate-100' : ''}`}
-                        onClick={() => onEditScore(task)}
-                      >
-                        Edit Score
-                      </button>
-                    )}
-                  </Menu.Item>
-                </Menu.Items>
-              </Menu>
-            </div>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onChangeTimestamp(task)}>
+                  Change Timestamp
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onRegenerate(task)}>
+                  Regenerate Summary
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onEditScore(task)}>
+                  Edit Score
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </Card>
@@ -370,10 +349,16 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
 
   // Fetch all tasks on component mount and auto-refresh every 5 seconds
   useEffect(() => {
+    let isMounted = true;
     fetchTasks(false); // Initial load without loading state
     fetchAutoReorderStatus(); // Check if manual reorder is allowed
-    const interval = setInterval(() => fetchTasks(false), 5000); // Auto-refresh every 5 seconds silently
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      if (isMounted) fetchTasks(false);
+    }, 5000); // Auto-refresh every 5 seconds silently
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const fetchTasks = async (showLoading = true) => {
@@ -384,19 +369,9 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
       const response = await fetch(`${API_BASE_URL}/status`);
       if (response.ok) {
         const data: TasksResponse = await response.json();
-        console.log('Fetched tasks data:', {
-          totalTasks: data.tasks.length,
-          completedTasks: data.tasks.filter(t => t.status === 'completed').length,
-          tasks: data.tasks.map(t => ({
-            id: t.id,
-            filename: t.filename,
-            status: t.status,
-            hasResult: t.hasResult,
-            hasSummary: !!t.result?.summary,
-            hasInferredTimestamp: !!t.result?.metadata?.inferredTimestamp
-          }))
-        });
-        setTasks(data.tasks);
+        if (!document.hidden) { // Only set state if tab is visible
+          setTasks(data.tasks);
+        }
       } else {
         console.error('Failed to fetch tasks');
       }

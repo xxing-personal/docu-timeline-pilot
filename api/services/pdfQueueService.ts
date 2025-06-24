@@ -56,6 +56,13 @@ export class PDFQueueService {
       
       console.log(`[END] Finished PDF Task #${task.id}: "${task.filename}"`);
       
+      // Trigger reordering by inferred timestamp after task completion
+      // This ensures regenerated tasks are properly ordered
+      if (result?.metadata?.inferredTimestamp) {
+        console.log(`🔄 Task ${task.id} completed with timestamp, triggering reorder...`);
+        await this.triggerReorderByInferredTimestamp();
+      }
+      
     } catch (error) {
       console.error(`[ERROR] Failed to process PDF Task #${task.id}: "${task.filename}"`, error);
       
@@ -316,10 +323,75 @@ export class PDFQueueService {
       const success = await this.databaseService.updateTask(taskId, { result });
       if (success) {
         console.log(`✅ Updated result for task ${taskId}`);
+        
+        // If this update includes a timestamp change, trigger reordering
+        if (result?.metadata?.inferredTimestamp) {
+          console.log(`🔄 Timestamp changed for task ${taskId}, triggering reorder...`);
+          await this.triggerReorderByInferredTimestamp();
+        }
       }
       return success;
     } catch (error) {
       console.error(`❌ Failed to update result for task ${taskId}:`, error);
+      return false;
+    }
+  }
+
+  // Trigger reordering by inferred timestamp (can be called after manual changes)
+  public async triggerReorderByInferredTimestamp(): Promise<boolean> {
+    try {
+      console.log('[QUEUE] Triggering reorder by inferred timestamp...');
+      
+      const allTasks = await this.databaseService.getAllTasks();
+      const completedTasks = allTasks.filter(task => task.status === 'completed');
+      
+      if (completedTasks.length === 0) {
+        console.log('[QUEUE] No completed tasks to reorder');
+        return true;
+      }
+      
+      // Filter tasks that have inferred timestamps
+      const tasksWithTimestamps = completedTasks.filter(task => 
+        task.result?.metadata?.inferredTimestamp
+      );
+      
+      if (tasksWithTimestamps.length === 0) {
+        console.log('[QUEUE] No tasks with inferred timestamps found');
+        return true;
+      }
+      
+      // Sort by inferred timestamp
+      const sortedTaskIds = tasksWithTimestamps
+        .sort((a, b) => {
+          const timestampA = new Date(a.result?.metadata?.inferredTimestamp || 0).getTime();
+          const timestampB = new Date(b.result?.metadata?.inferredTimestamp || 0).getTime();
+          return timestampA - timestampB;
+        })
+        .map(task => task.id);
+      
+      // Update sortingTimestamp for each task
+      for (const task of tasksWithTimestamps) {
+        await this.databaseService.updateTask(task.id, {
+          sortingTimestamp: task.result?.metadata?.inferredTimestamp || task.sortingTimestamp
+        });
+      }
+      
+      console.log(`[QUEUE] Reordering ${sortedTaskIds.length} tasks by inferred timestamp`);
+      
+      // Update the task order
+      this.taskOrder = [...sortedTaskIds];
+      
+      // Mark auto-reorder as completed if it wasn't already
+      if (!this.autoReorderCompleted) {
+        this.autoReorderCompleted = true;
+        console.log('[QUEUE] Auto-reorder by inferred timestamp marked as completed');
+      }
+      
+      console.log('[QUEUE] Reorder by inferred timestamp completed successfully');
+      return true;
+      
+    } catch (error) {
+      console.error('[QUEUE] Error during reorder by inferred timestamp:', error);
       return false;
     }
   }
