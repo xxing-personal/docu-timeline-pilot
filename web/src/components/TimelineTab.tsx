@@ -115,11 +115,15 @@ const SortableTaskItem = ({
     let currentSection = '';
     let bulletPoints: string[] = [];
 
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      
+    for (let i = 0; i < lines.length; i++) {
+      const trimmedLine = lines[i].trim();
       if (trimmedLine.startsWith('ONE_SENTENCE_SUMMARY:')) {
-        result.oneSentenceSummary = trimmedLine.replace('ONE_SENTENCE_SUMMARY:', '').trim();
+        let value = trimmedLine.replace('ONE_SENTENCE_SUMMARY:', '').trim();
+        if (value) {
+          result.oneSentenceSummary = value;
+        } else if (i + 1 < lines.length) {
+          result.oneSentenceSummary = lines[i + 1].trim();
+        }
       } else if (trimmedLine.startsWith('BULLET_POINTS:')) {
         currentSection = 'bulletPoints';
         bulletPoints = [];
