@@ -199,7 +199,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
     return mentions;
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
 
     const mentions = extractMentions(inputValue);
@@ -214,29 +214,60 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
 
     setMessages(prev => [...prev, userMessage]);
 
-    // Simulate AI response based on mentions
-    setTimeout(() => {
-      let aiResponse = '';
-      
-      if (mentions.includes('@all')) {
-        aiResponse = `I'll analyze all ${tasks.length} documents for you. Your question: "${inputValue.replace(/@all/g, '').trim()}". This is a demo response - in a real implementation, I would process all documents and provide comprehensive insights.`;
-      } else if (mentions.length > 0) {
-        const mentionedDocs = mentions.join(', ');
-        aiResponse = `I'll focus on the mentioned documents: ${mentionedDocs}. Your question: "${inputValue.replace(/@\w+/g, '').trim()}". This is a demo response - in a real implementation, I would analyze the specific documents you mentioned.`;
-      } else {
-        aiResponse = uploadedFiles.length > 0 
-          ? `I can see you have ${uploadedFiles.length} PDF(s) uploaded. I'm analyzing your question about "${inputValue}". This is a demo response - in a real implementation, I would process your documents and provide insights.`
-          : "I notice you haven't uploaded any PDFs yet. Please upload some documents first so I can help you analyze them.";
+    // Add a loading message
+    const loadingMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      content: 'Thinking...',
+      isUser: false,
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, loadingMessage]);
+
+    try {
+      // Call the backend chat API
+      const response = await fetch('http://localhost:3000/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: inputValue,
+          mentions: mentions
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get response from chat API');
       }
 
+      const data = await response.json();
+      
+      // Replace loading message with actual response
       const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: aiResponse,
+        id: loadingMessage.id,
+        content: data.content,
+        isUser: false,
+        timestamp: new Date(data.timestamp)
+      };
+      
+      setMessages(prev => prev.map(msg => 
+        msg.id === loadingMessage.id ? aiMessage : msg
+      ));
+    } catch (error) {
+      console.error('Chat API error:', error);
+      
+      // Replace loading message with error
+      const errorMessage: Message = {
+        id: loadingMessage.id,
+        content: 'Sorry, I encountered an error while processing your request. Please try again.',
         isUser: false,
         timestamp: new Date()
       };
-      setMessages(prev => [...prev, aiMessage]);
-    }, 1000);
+      
+      setMessages(prev => prev.map(msg => 
+        msg.id === loadingMessage.id ? errorMessage : msg
+      ));
+    }
 
     setInputValue('');
     setShowMentions(false);
@@ -312,25 +343,6 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
           </div>
         </ScrollArea>
       </div>
-
-      {/* Available Documents */}
-      {tasks.length > 0 && (
-        <div className="py-2 border-t border-slate-200">
-          <p className="text-xs text-slate-600 mb-2">Available documents:</p>
-          <div className="flex flex-wrap gap-1">
-            <Badge variant="outline" className="text-xs">
-              <AtSign className="w-3 h-3 mr-1" />
-              all
-            </Badge>
-            {tasks.map((task) => (
-              <Badge key={task.id} variant="outline" className="text-xs">
-                <FileText className="w-3 h-3 mr-1" />
-                {task.filename}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Suggested Queries - compact */}
       {uploadedFiles.length > 0 && (

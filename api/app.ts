@@ -8,6 +8,7 @@ import cors from 'cors';
 import { PDFQueueService } from './services/pdfQueueService';
 import { PDFProcessor } from './services/pdfProcessor';
 import { DatabaseService } from './services/databaseService';
+import { ChatService } from './services/chatService';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -18,6 +19,7 @@ app.use(express.json());
 const databaseService = new DatabaseService();
 const pdfProcessor = new PDFProcessor();
 const queueService = new PDFQueueService(pdfProcessor, databaseService);
+const chatService = new ChatService(databaseService);
 
 // Ensure uploads directory exists
 const uploadDir = path.join(__dirname, '../uploads');
@@ -596,6 +598,30 @@ app.post('/tasks/:taskId/edit-score', async (req, res) => {
   } catch (error) {
     console.error('Edit score error:', error);
     res.status(500).json({ error: 'Failed to edit score' });
+  }
+});
+
+// Chat endpoint
+app.post('/chat', async (req, res) => {
+  try {
+    const { message, mentions } = req.body as { message: string; mentions: string[] };
+    
+    if (!message || typeof message !== 'string') {
+      res.status(400).json({ error: 'message is required and must be a string' });
+      return;
+    }
+    
+    if (!mentions || !Array.isArray(mentions)) {
+      res.status(400).json({ error: 'mentions is required and must be an array' });
+      return;
+    }
+    
+    const response = await chatService.processChat({ message, mentions });
+    
+    res.json(response);
+  } catch (error) {
+    console.error('Chat error:', error);
+    res.status(500).json({ error: 'Failed to process chat request' });
   }
 });
 
