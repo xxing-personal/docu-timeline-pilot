@@ -2,39 +2,54 @@ import OpenAI from 'openai';
 import fs from 'fs/promises';
 import path from 'path';
 import { DatabaseService } from './databaseService';
-
-export interface ChatMessage {
-  id: string;
-  content: string;
-  isUser: boolean;
-  timestamp: Date;
-  mentions?: string[];
-}
+import { ChatDatabaseService, ChatMessage } from './chatDatabaseService';
 
 export interface ChatRequest {
   message: string;
   mentions: string[];
+  sessionId?: string;
 }
 
 export interface ChatResponse {
   id: string;
   content: string;
   timestamp: Date;
+  sessionId?: string;
 }
 
 export class ChatService {
   private openai: OpenAI;
   private databaseService: DatabaseService;
+  private chatDatabaseService: ChatDatabaseService;
 
   constructor(databaseService: DatabaseService) {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
     this.databaseService = databaseService;
+    this.chatDatabaseService = new ChatDatabaseService();
   }
 
   async processChat(request: ChatRequest): Promise<ChatResponse> {
     try {
+      // Get or create session
+      let sessionId = request.sessionId;
+      if (!sessionId) {
+        const session = await this.chatDatabaseService.createSession('New Chat');
+        sessionId = session.id;
+      }
+
+      // Save user message to database
+      const userMessage: ChatMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        content: request.message,
+        isUser: true,
+        timestamp: new Date(),
+        mentions: request.mentions,
+        sessionId
+      };
+      await this.chatDatabaseService.addMessageToSession(userMessage, sessionId);
+
       // Get all completed tasks
       const allTasks = await this.databaseService.getAllTasks();
       const completedTasks = allTasks.filter(task => task.status === 'completed' && task.result);
@@ -102,15 +117,51 @@ Keep responses concise but informative.`;
 
       const response = completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
 
-      return {
-        id: Date.now().toString(),
+      // Save AI response to database
+      const aiMessage: ChatMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         content: response,
-        timestamp: new Date()
+        isUser: false,
+        timestamp: new Date(),
+        sessionId
+      };
+      await this.chatDatabaseService.addMessageToSession(aiMessage, sessionId);
+
+      return {
+        id: aiMessage.id,
+        content: response,
+        timestamp: aiMessage.timestamp,
+        sessionId
       };
 
     } catch (error) {
       console.error('Chat processing error:', error);
       throw new Error('Failed to process chat request');
     }
+  }
+
+  // Chat session management methods
+  async getAllSessions() {
+    return this.chatDatabaseService.getAllSessions();
+  }
+
+  async createSession(name: string) {
+    return this.chatDatabaseService.createSession(name);
+  }
+
+  async getSession(sessionId: string) {
+    return this.chatDatabaseService.getSession(sessionId);
+  }
+
+  async getChatHistory(sessionId: string, limit: number = 50) {
+    return this.chatDatabaseService.getConversation(sessionId);
+  }
+
+  async deleteSession(sessionId: string) {
+    return this.chatDatabaseService.deleteSession(sessionId);
+  }
+
+  async getChatStatistics() {
+    return this.chatDatabaseService.getStatistics();
   }
 } 

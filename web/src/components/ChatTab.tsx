@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { Send, Bot, User, AtSign, FileText } from 'lucide-react';
+import { Send, Bot, User, AtSign, FileText, Plus, Sparkles, ChevronDown } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { getApiBaseUrl } from "@/lib/utils";
 
 interface ChatTabProps {
@@ -38,7 +38,16 @@ interface Message {
   content: string;
   isUser: boolean;
   timestamp: Date;
-  mentions?: string[]; // Array of mentioned document filenames
+  mentions?: string[];
+}
+
+interface ChatSession {
+  id: string;
+  name: string;
+  createdAt: Date;
+  lastActivity: Date;
+  messageCount: number;
+  documents?: string[];
 }
 
 interface MentionSuggestion {
@@ -51,26 +60,23 @@ interface MentionSuggestion {
 const API_BASE_URL = getApiBaseUrl();
 
 const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      content: 'Hello! I can help you analyze your PDF documents. Use @ to mention specific documents or @all for all documents. Upload some PDFs and ask me questions about their content, summaries, or key insights.',
-      isUser: false,
-      timestamp: new Date()
-    }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [tasks, setTasks] = useState<PdfTask[]>([]);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const [cursorPosition, setCursorPosition] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  // Fetch completed tasks on component mount
+  // Fetch completed tasks and load existing messages on component mount
   useEffect(() => {
     fetchTasks();
+    loadExistingMessages();
   }, []);
 
   // Auto-scroll to bottom when messages change
@@ -93,6 +99,101 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       }
     } catch (error) {
       console.error('Error fetching tasks:', error);
+    }
+  };
+
+  const fetchSessions = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/sessions`);
+      if (response.ok) {
+        const sessionsData = await response.json();
+        setSessions(sessionsData);
+      }
+    } catch (error) {
+      console.error('Error fetching sessions:', error);
+    }
+  };
+
+  const loadExistingMessages = async () => {
+    try {
+      await fetchSessions();
+      // Get the most recent session or create a new one
+      if (sessions.length > 0) {
+        // Load messages from the most recent session
+        const latestSession = sessions[0];
+        setCurrentSessionId(latestSession.id);
+        const messagesResponse = await fetch(`${API_BASE_URL}/chat/sessions/${latestSession.id}/messages`);
+        if (messagesResponse.ok) {
+          const messagesData = await messagesResponse.json();
+          const messagesWithDates = messagesData.map((msg: any) => ({
+            ...msg,
+            timestamp: new Date(msg.timestamp)
+          }));
+          setMessages(messagesWithDates);
+        }
+      } else {
+        // No existing sessions, add welcome message
+        setMessages([{
+          id: 'welcome',
+          content: 'Hello! I can help you analyze your PDF documents. Use @ to mention specific documents or @all for all documents. Upload some PDFs and ask me questions about their content, summaries, or key insights.',
+          isUser: false,
+          timestamp: new Date()
+        }]);
+      }
+    } catch (error) {
+      console.error('Error loading existing messages:', error);
+      // Fallback welcome message
+      setMessages([{
+        id: 'welcome',
+        content: 'Hello! I can help you analyze your PDF documents. Use @ to mention specific documents or @all for all documents. Upload some PDFs and ask me questions about their content, summaries, or key insights.',
+        isUser: false,
+        timestamp: new Date()
+      }]);
+    }
+  };
+
+  const createNewSession = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: 'New Chat' }),
+      });
+      
+      if (response.ok) {
+        const session = await response.json();
+        setCurrentSessionId(session.id);
+        setSessions(prev => [session, ...prev]);
+        
+        // Clear messages and add welcome message
+        setMessages([{
+          id: 'welcome',
+          content: 'Hello! I can help you analyze your PDF documents. Use @ to mention specific documents or @all for all documents. Upload some PDFs and ask me questions about their content, summaries, or key insights.',
+          isUser: false,
+          timestamp: new Date()
+        }]);
+      }
+    } catch (error) {
+      console.error('Error creating new session:', error);
+    }
+  };
+
+  const loadSession = async (sessionId: string) => {
+    try {
+      setCurrentSessionId(sessionId);
+      const messagesResponse = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`);
+      if (messagesResponse.ok) {
+        const messagesData = await messagesResponse.json();
+        const messagesWithDates = messagesData.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+        setMessages(messagesWithDates);
+      }
+    } catch (error) {
+      console.error('Error loading session:', error);
     }
   };
 
@@ -211,8 +312,9 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
   };
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || isLoading) return;
 
+    setIsLoading(true);
     const mentions = extractMentions(inputValue);
     
     const userMessage: Message = {
@@ -236,14 +338,15 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
 
     try {
       // Call the backend chat API
-      const response = await fetch('http://localhost:3000/chat', {
+      const response = await fetch(`${API_BASE_URL}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           message: inputValue,
-          mentions: mentions
+          mentions: mentions,
+          sessionId: currentSessionId
         }),
       });
 
@@ -264,6 +367,9 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       setMessages(prev => prev.map(msg => 
         msg.id === loadingMessage.id ? aiMessage : msg
       ));
+
+      // Refresh sessions to update message count
+      fetchSessions();
     } catch (error) {
       console.error('Chat API error:', error);
       
@@ -278,23 +384,18 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       setMessages(prev => prev.map(msg => 
         msg.id === loadingMessage.id ? errorMessage : msg
       ));
+    } finally {
+      setIsLoading(false);
     }
 
     setInputValue('');
     setShowMentions(false);
   };
 
-  const suggestedQueries = [
-    "@all Summarize all documents",
-    "@all What are the key dates?",
-    "@all Extract action items",
-    "Compare documents"
-  ];
-
   return (
     <div className="h-[calc(100vh-200px)] flex flex-col p-4">
-      {/* Chat Messages - takes most of the space */}
-      <div className="flex-1 min-h-0">
+      {/* Chat Messages */}
+      <div className="flex-1 min-h-0 mb-4">
         <ScrollArea ref={scrollAreaRef} className="h-full">
           <div className="space-y-4 pr-4">
             {messages.map((message) => (
@@ -318,36 +419,34 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
                       <Bot className="w-4 h-4 text-slate-600" />
                     )}
                   </div>
-                  <Card
-                    className={`p-3 ${
+                  <div
+                    className={`rounded-lg px-4 py-2 ${
                       message.isUser
                         ? 'bg-blue-500 text-white'
-                        : 'bg-white border border-slate-200'
+                        : 'bg-slate-100 text-slate-900'
                     }`}
                   >
-                    <p className="text-sm">{message.content}</p>
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                     {message.mentions && message.mentions.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {message.mentions.map((mention, index) => (
-                          <Badge 
-                            key={index} 
-                            variant="secondary" 
-                            className={`text-xs ${message.isUser ? 'bg-blue-400 text-white' : 'bg-slate-100'}`}
+                          <Badge
+                            key={index}
+                            variant="secondary"
+                            className="text-xs"
                           >
                             <AtSign className="w-3 h-3 mr-1" />
-                            {mention === '@all' ? 'all' : mention}
+                            {mention}
                           </Badge>
                         ))}
                       </div>
                     )}
-                    <p
-                      className={`text-xs mt-1 ${
-                        message.isUser ? 'text-blue-100' : 'text-slate-500'
-                      }`}
-                    >
-                      {message.timestamp.toLocaleTimeString()}
+                    <p className={`text-xs mt-1 ${
+                      message.isUser ? 'text-blue-100' : 'text-slate-500'
+                    }`}>
+                      {new Date(message.timestamp).toLocaleTimeString()}
                     </p>
-                  </Card>
+                  </div>
                 </div>
               </div>
             ))}
@@ -355,58 +454,101 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
         </ScrollArea>
       </div>
 
-      {/* Suggested Queries - compact */}
-      {uploadedFiles.length > 0 && (
-        <div className="py-3">
-          <p className="text-xs text-slate-600 mb-2">Suggested queries:</p>
-          <div className="flex flex-wrap gap-2">
-            {suggestedQueries.map((query, index) => (
-              <Button
-                key={index}
-                variant="outline"
-                size="sm"
-                onClick={() => setInputValue(query)}
-                className="text-xs"
-              >
-                {query}
-              </Button>
-            ))}
-          </div>
+      {/* Menu Bar - now two lines, more compact and wider */}
+      <div className="p-2 bg-white rounded-2xl border border-slate-200 shadow-sm" style={{minHeight: 48, maxWidth: 1000, margin: '0 auto', width: '100%'}}>
+        {/* Top line: Input */}
+        <div className="flex items-center mb-1 w-full">
+          <Input
+            ref={inputRef}
+            value={inputValue}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Type your message..."
+            className="border-0 shadow-none focus:ring-0 focus-visible:ring-0 bg-transparent px-0 text-sm h-8 flex-1"
+            style={{fontSize: '0.98rem', width: '100%'}}
+            disabled={isLoading}
+          />
+          {/* Mention Suggestions */}
+          {showMentions && (
+            <div className="absolute bottom-full left-0 mb-2 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-10">
+              {mentionSuggestions.map((suggestion, index) => (
+                <div
+                  key={index}
+                  className={`px-3 py-2 cursor-pointer flex items-center gap-2 ${
+                    index === selectedMentionIndex ? 'bg-blue-50' : 'hover:bg-slate-50'
+                  }`}
+                  onClick={() => insertMention(suggestion)}
+                >
+                  {suggestion.type === 'all' ? (
+                    <AtSign className="w-4 h-4 text-blue-500" />
+                  ) : (
+                    <FileText className="w-4 h-4 text-green-500" />
+                  )}
+                  <span className="text-sm">{suggestion.display}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-
-      {/* Input Area - fixed at bottom with proper spacing */}
-      <div className="pt-3 border-t border-slate-200 relative">
-        <div className="flex space-x-2">
-          <div className="flex-1 relative">
-            <Input
-              ref={inputRef}
-              value={inputValue}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask about your documents... Use @ to mention specific docs"
-              className="flex-1"
-            />
-            {showMentions && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-slate-200 rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
-                {mentionSuggestions.map((suggestion, index) => (
-                  <div
-                    key={index}
-                    className={`px-3 py-2 cursor-pointer hover:bg-slate-50 ${
-                      index === selectedMentionIndex ? 'bg-slate-100' : ''
-                    }`}
-                    onClick={() => insertMention(suggestion)}
-                  >
-                    <div className="flex items-center space-x-2">
-                      <AtSign className="w-4 h-4 text-slate-500" />
-                      <span className="text-sm">{suggestion.display}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+        {/* Second line: Buttons */}
+        <div className="flex items-center gap-2 justify-between w-full">
+          <div className="flex items-center gap-1">
+            {/* + Button */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full">
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={createNewSession}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Chat
+                </DropdownMenuItem>
+                {sessions.length > 0 && (
+                  <>
+                    <DropdownMenuItem disabled className="text-xs text-slate-500">
+                      Recent Sessions
+                    </DropdownMenuItem>
+                    {sessions.slice(0, 5).map((session) => (
+                      <DropdownMenuItem 
+                        key={session.id}
+                        onClick={() => loadSession(session.id)}
+                        className="text-sm"
+                      >
+                        <FileText className="w-4 h-4 mr-2" />
+                        {session.name} ({session.messageCount} messages)
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {/* Agent Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="flex items-center gap-1 px-2 h-7 rounded-full text-xs font-normal">
+                  <Sparkles className="w-3 h-3" />
+                  Agent
+                  <ChevronDown className="w-3 h-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem disabled>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Agent features coming soon...
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <Button onClick={handleSendMessage} size="sm">
+          {/* Send Button */}
+          <Button 
+            onClick={handleSendMessage} 
+            size="icon"
+            disabled={isLoading || !inputValue.trim()}
+            className="h-8 w-8 rounded-full bg-black hover:bg-black/80 text-white flex items-center justify-center shadow-none"
+            style={{marginLeft: 4}}
+          >
             <Send className="w-4 h-4" />
           </Button>
         </div>
