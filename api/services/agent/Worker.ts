@@ -40,6 +40,7 @@ export class ComparisonWorker extends Worker {
     const question = taskPayload.question || '';
     const article = taskPayload.article || '';
     const historicalScores = context;
+    const article_id = taskPayload.article_id || '';
     const prompt = `
 You are given an article.
 
@@ -48,6 +49,7 @@ You are given an article.
 3. The output should look like:
 {score_name: name of the score; 
 score_value: val between -1 and 1; 
+article_id: ${article_id};
 evidence: original sentence from the article, in bullet's point, be concise; 
 rational: your thinking why this score is given, especially compare with historical, 1-2 sentence}
 
@@ -142,8 +144,45 @@ Output only the summary paragraph as plain text.
 }
 
 export class WritingWorker extends Worker {
-  protected async coreProcess(taskPayload: any, context: string): Promise<string> {
-    // TODO: implement writing logic using context and taskPayload
-    return `Writing result (stub) with context length ${context.length}`;
+  protected async coreProcess(taskPayload: any, context: string): Promise<object> {
+    // Use OpenAI API to generate a long markdown article
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+    const question = taskPayload.question || '';
+    const historicalResearch = context;
+    // Optionally, pass in a mapping of article ids to article titles for citation
+    const articleIdMap = taskPayload.articleIdMap || {};
+    const prompt = `
+You are a writing assistant. Given the following historical research context, generate a long, detailed markdown article that answers the question. The article should:
+- Be in markdown format
+- Reference and cite specific articles by their article id (use [^article_id] for citation)
+- Include a references section at the end listing all cited article ids and their titles (if available)
+
+Question:
+${question}
+
+Historical Research Context:
+${historicalResearch}
+
+Article ID Map (for citation):
+${JSON.stringify(articleIdMap, null, 2)}
+
+Output only the markdown article.
+`;
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant for research writing and markdown generation.' },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 2048,
+      temperature: 0.7,
+    });
+    let article = '';
+    try {
+      article = completion.choices[0]?.message?.content?.trim() || '';
+    } catch (e) {
+      article = 'Failed to generate article.';
+    }
+    return { article };
   }
 } 
