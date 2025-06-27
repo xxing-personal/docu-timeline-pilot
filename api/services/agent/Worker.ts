@@ -91,17 +91,29 @@ export class ResearchWorker extends Worker {
     // Use OpenAI API to generate a summary of the article
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
     const article = taskPayload.article || '';
+    const article_id = taskPayload.article_id || '';
     const historicalResearch = context;
+    const question = taskPayload.question || '';
     const prompt = `
 You are given an article and some historical research context.
 
 Please write a small paragraph summary of the article, taking into account the historical research context if relevant. Be concise and informative.
+1. Please write a small paragraph to answer the question, refering to the article. Taking into account the historical research context if relevant. Be concise and informative. try to get as much as incremental information you have from the article comparing to historical research context.
+2. Please also extract several pieces of evidence on how the article is discussing this and why you are giving this answer. Please CITE the original sentences.
+3. The output should look like:
+{answer: answer of the score; 
+artical_id: ${article_id}; 
+evidence: original sentence from the article, in bullet's point, be concise; 
+rational: your thinking why this score is given, especially compare with historical, 1-2 sentence}
 
 Article:
 ${article}
 
-Historical Research Context:
+Question: ${question}
+
+Historical Scores: 
 ${historicalResearch}
+
 
 Output only the summary paragraph as plain text.
 `;
@@ -114,13 +126,18 @@ Output only the summary paragraph as plain text.
       max_tokens: 256,
       temperature: 0.3,
     });
+    let output: any = {};
     let summary = '';
     try {
-      summary = completion.choices[0]?.message?.content?.trim() || '';
+      const text = completion.choices[0]?.message?.content || '';
+      output = JSON.parse(text);
+      if (output.answer) {
+        summary = output.answer;
+      }
     } catch (e) {
-      summary = 'Failed to generate summary.';
+      output = { error: 'Failed to parse OpenAI output as JSON', raw: completion.choices[0]?.message?.content };
     }
-    return { summary };
+    return { ...output, summary };
   }
 }
 
