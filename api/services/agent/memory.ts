@@ -1,5 +1,4 @@
 import OpenAI from 'openai';
-import { ShrinkMode } from './memoryDatabaseService';
 
 export type ShrinkMode = 'truncate' | 'compress';
 

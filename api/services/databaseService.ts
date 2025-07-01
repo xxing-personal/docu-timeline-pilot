@@ -17,9 +17,36 @@ interface DatabaseSchema {
   };
 }
 
+// Simple mutex implementation for database locking
+class Mutex {
+  private locked = false;
+  private waitQueue: Array<() => void> = [];
+
+  async acquire(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.locked) {
+        this.locked = true;
+        resolve();
+      } else {
+        this.waitQueue.push(resolve);
+      }
+    });
+  }
+
+  release(): void {
+    if (this.waitQueue.length > 0) {
+      const next = this.waitQueue.shift()!;
+      next();
+    } else {
+      this.locked = false;
+    }
+  }
+}
+
 export class DatabaseService {
   private db: Low<DatabaseSchema>;
   private dbPath: string;
+  private mutex = new Mutex(); // Add mutex for database locking
 
   constructor() {
     this.dbPath = path.join(process.cwd(), 'data', 'database.json');
@@ -83,6 +110,10 @@ export class DatabaseService {
   // Task management methods
   async addTask(task: PDFTask): Promise<void> {
     console.log(`[DATABASE] Adding task to database: ${task.id} (${task.filename})`);
+    
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
+    
     try {
       await this.ensureInitialized();
       console.log(`[DATABASE] Database initialized, reading current data`);
@@ -101,25 +132,36 @@ export class DatabaseService {
     } catch (error) {
       console.error(`[DATABASE] Failed to add task ${task.id}:`, error);
       throw error;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
     }
   }
 
   async updateTask(taskId: string, updates: Partial<PDFTask>): Promise<boolean> {
-    await this.ensureInitialized();
-    await this.db.read();
-    const taskIndex = this.db.data!.tasks.findIndex(task => task.id === taskId);
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    if (taskIndex === -1) {
-      return false;
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      const taskIndex = this.db.data!.tasks.findIndex(task => task.id === taskId);
+      
+      if (taskIndex === -1) {
+        return false;
+      }
+
+      this.db.data!.tasks[taskIndex] = {
+        ...this.db.data!.tasks[taskIndex],
+        ...updates
+      };
+
+      await this.db.write();
+      return true;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
     }
-
-    this.db.data!.tasks[taskIndex] = {
-      ...this.db.data!.tasks[taskIndex],
-      ...updates
-    };
-
-    await this.db.write();
-    return true;
   }
 
   async getTask(taskId: string): Promise<PDFTask | undefined> {
@@ -135,47 +177,71 @@ export class DatabaseService {
   }
 
   async removeTask(taskId: string): Promise<boolean> {
-    await this.ensureInitialized();
-    await this.db.read();
-    const initialLength = this.db.data!.tasks.length;
-    this.db.data!.tasks = this.db.data!.tasks.filter(task => task.id !== taskId);
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    if (this.db.data!.tasks.length < initialLength) {
-      await this.db.write();
-      return true;
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      const initialLength = this.db.data!.tasks.length;
+      this.db.data!.tasks = this.db.data!.tasks.filter(task => task.id !== taskId);
+      
+      if (this.db.data!.tasks.length < initialLength) {
+        await this.db.write();
+        return true;
+      }
+      return false;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
     }
-    return false;
   }
 
   async clearCompletedTasks(): Promise<number> {
-    await this.ensureInitialized();
-    await this.db.read();
-    const initialLength = this.db.data!.tasks.length;
-    this.db.data!.tasks = this.db.data!.tasks.filter(task => task.status !== 'completed');
-    const removedCount = initialLength - this.db.data!.tasks.length;
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    if (removedCount > 0) {
-      await this.db.write();
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      const initialLength = this.db.data!.tasks.length;
+      this.db.data!.tasks = this.db.data!.tasks.filter(task => task.status !== 'completed');
+      const removedCount = initialLength - this.db.data!.tasks.length;
+      
+      if (removedCount > 0) {
+        await this.db.write();
+      }
+      
+      return removedCount;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
     }
-    
-    return removedCount;
   }
 
   // Statistics methods
   async updateStatistics(processed: boolean, failed: boolean = false): Promise<void> {
-    await this.ensureInitialized();
-    await this.db.read();
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    if (processed) {
-      this.db.data!.statistics.totalProcessed++;
-      this.db.data!.statistics.lastProcessedDate = new Date().toISOString();
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      if (processed) {
+        this.db.data!.statistics.totalProcessed++;
+        this.db.data!.statistics.lastProcessedDate = new Date().toISOString();
+      }
+      
+      if (failed) {
+        this.db.data!.statistics.totalFailed++;
+      }
+      
+      await this.db.write();
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
     }
-    
-    if (failed) {
-      this.db.data!.statistics.totalFailed++;
-    }
-    
-    await this.db.write();
   }
 
   async getStatistics(): Promise<DatabaseSchema['statistics']> {
@@ -186,15 +252,23 @@ export class DatabaseService {
 
   // Database maintenance methods
   async backup(): Promise<string> {
-    await this.ensureInitialized();
-    await this.db.read();
-    const backupPath = path.join(process.cwd(), 'data', `backup-${Date.now()}.json`);
-    await fs.writeFile(backupPath, JSON.stringify(this.db.data, null, 2));
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    this.db.data!.settings.lastBackup = new Date().toISOString();
-    await this.db.write();
-    
-    return backupPath;
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      const backupPath = path.join(process.cwd(), 'data', `backup-${Date.now()}.json`);
+      await fs.writeFile(backupPath, JSON.stringify(this.db.data, null, 2));
+      
+      this.db.data!.settings.lastBackup = new Date().toISOString();
+      await this.db.write();
+      
+      return backupPath;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
+    }
   }
 
   async getDatabaseInfo(): Promise<{
@@ -221,20 +295,28 @@ export class DatabaseService {
 
   // Utility methods
   async resetDatabase(): Promise<void> {
-    await this.ensureInitialized();
-    this.db.data = {
-      tasks: [],
-      settings: {
-        lastBackup: new Date().toISOString(),
-        version: '1.0.0'
-      },
-      statistics: {
-        totalProcessed: 0,
-        totalFailed: 0,
-        lastProcessedDate: new Date().toISOString()
-      }
-    };
-    await this.db.write();
-    console.log('[DATABASE] Database reset');
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
+    
+    try {
+      await this.ensureInitialized();
+      this.db.data = {
+        tasks: [],
+        settings: {
+          lastBackup: new Date().toISOString(),
+          version: '1.0.0'
+        },
+        statistics: {
+          totalProcessed: 0,
+          totalFailed: 0,
+          lastProcessedDate: new Date().toISOString()
+        }
+      };
+      await this.db.write();
+      console.log('[DATABASE] Database reset');
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
+    }
   }
 } 

@@ -35,9 +35,36 @@ interface ChatDatabaseSchema {
   };
 }
 
+// Simple mutex implementation for database locking
+class Mutex {
+  private locked = false;
+  private waitQueue: Array<() => void> = [];
+
+  async acquire(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.locked) {
+        this.locked = true;
+        resolve();
+      } else {
+        this.waitQueue.push(resolve);
+      }
+    });
+  }
+
+  release(): void {
+    if (this.waitQueue.length > 0) {
+      const next = this.waitQueue.shift()!;
+      next();
+    } else {
+      this.locked = false;
+    }
+  }
+}
+
 export class ChatDatabaseService {
   private db: Low<ChatDatabaseSchema>;
   private dbPath: string;
+  private mutex = new Mutex(); // Add mutex for database locking
 
   constructor() {
     this.dbPath = path.join(process.cwd(), 'data', 'chat-database.json');
@@ -103,6 +130,10 @@ export class ChatDatabaseService {
   // Message management methods
   async addMessage(message: ChatMessage): Promise<void> {
     console.log(`[CHAT DATABASE] Adding message to database: ${message.id}`);
+    
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
+    
     try {
       await this.ensureInitialized();
       await this.db.read();
@@ -120,6 +151,9 @@ export class ChatDatabaseService {
     } catch (error) {
       console.error(`[CHAT DATABASE] Failed to add message ${message.id}:`, error);
       throw error;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
     }
   }
 
@@ -146,39 +180,55 @@ export class ChatDatabaseService {
   }
 
   async deleteMessage(messageId: string): Promise<boolean> {
-    await this.ensureInitialized();
-    await this.db.read();
-    const initialLength = this.db.data!.messages.length;
-    this.db.data!.messages = this.db.data!.messages.filter(msg => msg.id !== messageId);
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    if (this.db.data!.messages.length < initialLength) {
-      this.db.data!.statistics.totalMessages--;
-      await this.db.write();
-      return true;
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      const initialLength = this.db.data!.messages.length;
+      this.db.data!.messages = this.db.data!.messages.filter(msg => msg.id !== messageId);
+      
+      if (this.db.data!.messages.length < initialLength) {
+        this.db.data!.statistics.totalMessages--;
+        await this.db.write();
+        return true;
+      }
+      return false;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
     }
-    return false;
   }
 
   // Session management methods
   async createSession(name: string, documents?: string[]): Promise<ChatSession> {
-    await this.ensureInitialized();
-    await this.db.read();
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    const session: ChatSession = {
-      id: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      name,
-      createdAt: new Date(),
-      lastActivity: new Date(),
-      messageCount: 0,
-      documents
-    };
-    
-    this.db.data!.sessions.push(session);
-    this.db.data!.statistics.totalSessions++;
-    await this.db.write();
-    
-    console.log(`[CHAT DATABASE] Created new session: ${session.id}`);
-    return session;
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      const session: ChatSession = {
+        id: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        name,
+        createdAt: new Date(),
+        lastActivity: new Date(),
+        messageCount: 0,
+        documents
+      };
+      
+      this.db.data!.sessions.push(session);
+      this.db.data!.statistics.totalSessions++;
+      await this.db.write();
+      
+      console.log(`[CHAT DATABASE] Created new session: ${session.id}`);
+      return session;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
+    }
   }
 
   async getSession(sessionId: string): Promise<ChatSession | undefined> {
@@ -196,43 +246,59 @@ export class ChatDatabaseService {
   }
 
   async updateSession(sessionId: string, updates: Partial<ChatSession>): Promise<boolean> {
-    await this.ensureInitialized();
-    await this.db.read();
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    const sessionIndex = this.db.data!.sessions.findIndex(session => session.id === sessionId);
-    if (sessionIndex === -1) {
-      return false;
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      const sessionIndex = this.db.data!.sessions.findIndex(session => session.id === sessionId);
+      if (sessionIndex === -1) {
+        return false;
+      }
+      
+      this.db.data!.sessions[sessionIndex] = {
+        ...this.db.data!.sessions[sessionIndex],
+        ...updates,
+        lastActivity: new Date()
+      };
+      
+      await this.db.write();
+      return true;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
     }
-    
-    this.db.data!.sessions[sessionIndex] = {
-      ...this.db.data!.sessions[sessionIndex],
-      ...updates,
-      lastActivity: new Date()
-    };
-    
-    await this.db.write();
-    return true;
   }
 
   async deleteSession(sessionId: string): Promise<boolean> {
-    await this.ensureInitialized();
-    await this.db.read();
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    const initialLength = this.db.data!.sessions.length;
-    this.db.data!.sessions = this.db.data!.sessions.filter(session => session.id !== sessionId);
-    
-    // Also delete all messages in this session
-    const initialMessageCount = this.db.data!.messages.length;
-    this.db.data!.messages = this.db.data!.messages.filter(msg => msg.sessionId !== sessionId);
-    const deletedMessageCount = initialMessageCount - this.db.data!.messages.length;
-    
-    if (this.db.data!.sessions.length < initialLength) {
-      this.db.data!.statistics.totalSessions--;
-      this.db.data!.statistics.totalMessages -= deletedMessageCount;
-      await this.db.write();
-      return true;
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      const initialLength = this.db.data!.sessions.length;
+      this.db.data!.sessions = this.db.data!.sessions.filter(session => session.id !== sessionId);
+      
+      // Also delete all messages in this session
+      const initialMessageCount = this.db.data!.messages.length;
+      this.db.data!.messages = this.db.data!.messages.filter(msg => msg.sessionId !== sessionId);
+      const deletedMessageCount = initialMessageCount - this.db.data!.messages.length;
+      
+      if (this.db.data!.sessions.length < initialLength) {
+        this.db.data!.statistics.totalSessions--;
+        this.db.data!.statistics.totalMessages -= deletedMessageCount;
+        await this.db.write();
+        return true;
+      }
+      return false;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
     }
-    return false;
   }
 
   // Convenience methods
@@ -257,15 +323,23 @@ export class ChatDatabaseService {
 
   // Database maintenance methods
   async backup(): Promise<string> {
-    await this.ensureInitialized();
-    await this.db.read();
-    const backupPath = path.join(process.cwd(), 'data', `chat-backup-${Date.now()}.json`);
-    await fs.writeFile(backupPath, JSON.stringify(this.db.data, null, 2));
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    this.db.data!.settings.lastBackup = new Date().toISOString();
-    await this.db.write();
-    
-    return backupPath;
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      const backupPath = path.join(process.cwd(), 'data', `chat-backup-${Date.now()}.json`);
+      await fs.writeFile(backupPath, JSON.stringify(this.db.data, null, 2));
+      
+      this.db.data!.settings.lastBackup = new Date().toISOString();
+      await this.db.write();
+      
+      return backupPath;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
+    }
   }
 
   async getDatabaseInfo(): Promise<{
@@ -279,8 +353,8 @@ export class ChatDatabaseService {
     await this.db.read();
     
     return {
-      messageCount: this.db.data!.statistics.totalMessages,
-      sessionCount: this.db.data!.statistics.totalSessions,
+      messageCount: this.db.data!.messages.length,
+      sessionCount: this.db.data!.sessions.length,
       lastMessageDate: this.db.data!.statistics.lastMessageDate,
       lastBackup: this.db.data!.settings.lastBackup,
       version: this.db.data!.settings.version
@@ -288,43 +362,58 @@ export class ChatDatabaseService {
   }
 
   async resetDatabase(): Promise<void> {
-    await this.ensureInitialized();
-    this.db.data = {
-      messages: [],
-      sessions: [],
-      settings: {
-        lastBackup: new Date().toISOString(),
-        version: '1.0.0'
-      },
-      statistics: {
-        totalMessages: 0,
-        totalSessions: 0,
-        lastMessageDate: new Date().toISOString()
-      }
-    };
-    await this.db.write();
-    console.log('[CHAT DATABASE] Database reset');
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
+    
+    try {
+      await this.ensureInitialized();
+      this.db.data = {
+        messages: [],
+        sessions: [],
+        settings: {
+          lastBackup: new Date().toISOString(),
+          version: '1.0.0'
+        },
+        statistics: {
+          totalMessages: 0,
+          totalSessions: 0,
+          lastMessageDate: new Date().toISOString()
+        }
+      };
+      await this.db.write();
+      console.log('[CHAT DATABASE] Chat database reset');
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
+    }
   }
 
   async cleanupOldMessages(daysToKeep: number = 30): Promise<number> {
-    await this.ensureInitialized();
-    await this.db.read();
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
     
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
-    
-    const initialLength = this.db.data!.messages.length;
-    this.db.data!.messages = this.db.data!.messages.filter(msg => 
-      new Date(msg.timestamp) > cutoffDate
-    );
-    
-    const deletedCount = initialLength - this.db.data!.messages.length;
-    if (deletedCount > 0) {
-      this.db.data!.statistics.totalMessages -= deletedCount;
-      await this.db.write();
-      console.log(`[CHAT DATABASE] Cleaned up ${deletedCount} old messages`);
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+      
+      const initialLength = this.db.data!.messages.length;
+      this.db.data!.messages = this.db.data!.messages.filter(msg => 
+        new Date(msg.timestamp) > cutoffDate
+      );
+      
+      const deletedCount = initialLength - this.db.data!.messages.length;
+      if (deletedCount > 0) {
+        this.db.data!.statistics.totalMessages -= deletedCount;
+        await this.db.write();
+      }
+      
+      return deletedCount;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
     }
-    
-    return deletedCount;
   }
 } 

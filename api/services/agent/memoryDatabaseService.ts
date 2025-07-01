@@ -18,9 +18,36 @@ interface MemoryDatabaseSchema {
   snapshots: MemorySnapshot[];
 }
 
+// Simple mutex implementation for database locking
+class Mutex {
+  private locked = false;
+  private waitQueue: Array<() => void> = [];
+
+  async acquire(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.locked) {
+        this.locked = true;
+        resolve();
+      } else {
+        this.waitQueue.push(resolve);
+      }
+    });
+  }
+
+  release(): void {
+    if (this.waitQueue.length > 0) {
+      const next = this.waitQueue.shift()!;
+      next();
+    } else {
+      this.locked = false;
+    }
+  }
+}
+
 export class MemoryDatabaseService {
   private db: Low<MemoryDatabaseSchema>;
   private dbPath: string;
+  private mutex = new Mutex(); // Add mutex for database locking
 
   constructor() {
     this.dbPath = path.join(process.cwd(), 'data', 'memory-history.json');
@@ -51,14 +78,22 @@ export class MemoryDatabaseService {
   }
 
   async addSnapshot(snapshot: Omit<MemorySnapshot, 'version' | 'createdAt'>) {
-    await this.ensureInitialized();
-    await this.db.read();
-    const version = Date.now();
-    const createdAt = new Date().toISOString();
-    const fullSnapshot: MemorySnapshot = { ...snapshot, version, createdAt };
-    this.db.data!.snapshots.push(fullSnapshot);
-    await this.db.write();
-    return fullSnapshot;
+    // Acquire mutex lock before database operations
+    await this.mutex.acquire();
+    
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      const version = Date.now();
+      const createdAt = new Date().toISOString();
+      const fullSnapshot: MemorySnapshot = { ...snapshot, version, createdAt };
+      this.db.data!.snapshots.push(fullSnapshot);
+      await this.db.write();
+      return fullSnapshot;
+    } finally {
+      // Always release the mutex lock
+      this.mutex.release();
+    }
   }
 
   async getSnapshots(id: string): Promise<MemorySnapshot[]> {

@@ -3,10 +3,12 @@ import path from 'path';
 import pdfParse from 'pdf-parse';
 import OpenAI from 'openai';
 import { PDFTask, PDFProcessingResult } from '../types';
+import { IndicesDatabaseService } from './indicesDatabaseService';
 
 export class PDFProcessor {
   private openai: OpenAI;
   private extractedTextDir: string;
+  private indicesDb: IndicesDatabaseService;
 
   constructor() {
     // Initialize OpenAI client
@@ -17,6 +19,9 @@ export class PDFProcessor {
     // Create directory for extracted text files
     this.extractedTextDir = path.join(process.cwd(), 'extracted-texts');
     this.ensureExtractedTextDir();
+    
+    // Initialize indices database
+    this.indicesDb = new IndicesDatabaseService();
   }
 
   private async ensureExtractedTextDir(): Promise<void> {
@@ -103,6 +108,26 @@ ${extractedText}
         if (!isNaN(value)) {
           analysisScores[key] = value;
         }
+      }
+      
+      // Save indices to the indices database if any were found
+      console.log(`[PDF PROCESSOR] Found ${Object.keys(analysisScores).length} analysis scores for ${task.filename}:`, analysisScores);
+      if (Object.keys(analysisScores).length > 0) {
+        try {
+          console.log(`[PDF PROCESSOR] Attempting to save indices to database for ${task.filename}`);
+          await this.indicesDb.addPdfProcessingIndex(
+            task.id,
+            task.filename,
+            analysisScores,
+            inferredTimestamp || undefined,
+            task.id
+          );
+          console.log(`[PDF PROCESSOR] Successfully saved indices to database for ${task.filename}`);
+        } catch (error) {
+          console.error(`[PDF PROCESSOR] Failed to save indices to database for ${task.filename}:`, error);
+        }
+      } else {
+        console.log(`[PDF PROCESSOR] No analysis scores found for ${task.filename}`);
       }
       
       // Get page count from pdf-parse results

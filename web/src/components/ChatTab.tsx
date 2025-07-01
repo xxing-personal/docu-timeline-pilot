@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Bot, User, AtSign, FileText, Plus, Sparkles, ChevronDown } from 'lucide-react';
+import { Send, Bot, User, AtSign, FileText, Plus, Sparkles, ChevronDown, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { getApiBaseUrl } from "@/lib/utils";
 
 interface ChatTabProps {
@@ -57,6 +60,21 @@ interface MentionSuggestion {
   filename?: string;
 }
 
+interface AgentTask {
+  id: string;
+  type: string;
+  payload: any;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  resultPath?: string;
+  result?: any;
+  error?: string;
+}
+
+interface AgentQueue {
+  queueKey: string;
+  tasks: AgentTask[];
+}
+
 const API_BASE_URL = getApiBaseUrl();
 
 const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
@@ -70,6 +88,13 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  
+  // Agent states
+  const [selectedAgentType, setSelectedAgentType] = useState<'indices' | 'deep_research' | null>(null);
+  const [agentQueues, setAgentQueues] = useState<AgentQueue[]>([]);
+  const [currentAgentQueue, setCurrentAgentQueue] = useState<AgentQueue | null>(null);
+  const [agentLoading, setAgentLoading] = useState(false);
+  
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
@@ -77,6 +102,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
   useEffect(() => {
     fetchTasks();
     loadExistingMessages();
+    fetchAgentQueues();
   }, []);
 
   // Auto-scroll to bottom when messages change
@@ -99,6 +125,18 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       }
     } catch (error) {
       console.error('Error fetching tasks:', error);
+    }
+  };
+
+  const fetchAgentQueues = async () => {
+    try {
+      // For now, we'll store queues in localStorage since they're in-memory on backend
+      const storedQueues = localStorage.getItem('agentQueues');
+      if (storedQueues) {
+        setAgentQueues(JSON.parse(storedQueues));
+      }
+    } catch (error) {
+      console.error('Error fetching agent queues:', error);
     }
   };
 
@@ -314,6 +352,14 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
   const handleSendMessage = async () => {
     if (!inputValue.trim() || isLoading) return;
 
+    // Check if an agent is selected and handle agent request
+    if (selectedAgentType) {
+      await initiateAgent(inputValue);
+      setInputValue('');
+      setShowMentions(false);
+      return;
+    }
+
     setIsLoading(true);
     const mentions = extractMentions(inputValue);
     
@@ -392,6 +438,146 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
     setShowMentions(false);
   };
 
+  // Agent functions
+  const initiateAgent = async (query: string) => {
+    if (!selectedAgentType || !query.trim()) return;
+    
+    setAgentLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/agent/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          agentType: selectedAgentType,
+          userQuery: query
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to initiate agent');
+      }
+
+      const data = await response.json();
+      
+      // Add agent message to chat
+      const agentMessage: Message = {
+        id: Date.now().toString(),
+        content: `🤖 Started ${selectedAgentType === 'indices' ? 'Indices Creation' : 'Deep Research'} agent with query: "${query}". Processing documents...`,
+        isUser: false,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, agentMessage]);
+      
+      // Store queue info
+      const newQueue: AgentQueue = {
+        queueKey: data.queueKey,
+        tasks: []
+      };
+      
+      setAgentQueues(prev => [newQueue, ...prev]);
+      setCurrentAgentQueue(newQueue);
+      localStorage.setItem('agentQueues', JSON.stringify([newQueue, ...agentQueues]));
+      
+      // Reset agent type
+      setSelectedAgentType(null);
+      
+      // Start monitoring the queue
+      monitorAgentQueue(data.queueKey);
+      
+    } catch (error) {
+      console.error('Agent initiation error:', error);
+      alert('Failed to start agent. Please try again.');
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
+  const monitorAgentQueue = async (queueKey: string) => {
+    // Poll the queue every 2 seconds
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/agent/queue/${queueKey}`);
+        if (response.ok) {
+          const data = await response.json();
+          
+          // Update queue in state
+          setAgentQueues(prev => prev.map(q => 
+            q.queueKey === queueKey ? { ...q, tasks: data.tasks } : q
+          ));
+          
+          // Check if all tasks are completed
+          const allCompleted = data.tasks.every((t: AgentTask) => t.status === 'completed');
+          const anyFailed = data.tasks.some((t: AgentTask) => t.status === 'failed');
+          
+          if (allCompleted || anyFailed) {
+            clearInterval(interval);
+            
+            // Add completion message
+            const completionMessage: Message = {
+              id: Date.now().toString(),
+              content: anyFailed 
+                ? `❌ Agent processing completed with some failures. Check the queue for details.`
+                : `✅ Agent processing completed successfully! ${selectedAgentType === 'indices' ? 'Check the Analysis tab for new indices.' : 'Check the results below.'}`,
+              isUser: false,
+              timestamp: new Date()
+            };
+            
+            setMessages(prev => [...prev, completionMessage]);
+            
+            // If indices agent, refresh tasks to trigger AnalysisTab update
+            if (selectedAgentType === 'indices') {
+              fetchTasks();
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error monitoring agent queue:', error);
+      }
+    }, 2000);
+  };
+
+  const processNextTask = async (queueKey: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/agent/process-next/${queueKey}`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Task processed:', data);
+        
+        // Refresh queue
+        const queueResponse = await fetch(`${API_BASE_URL}/agent/queue/${queueKey}`);
+        if (queueResponse.ok) {
+          const queueData = await queueResponse.json();
+          setAgentQueues(prev => prev.map(q => 
+            q.queueKey === queueKey ? { ...q, tasks: queueData.tasks } : q
+          ));
+        }
+      }
+    } catch (error) {
+      console.error('Error processing next task:', error);
+    }
+  };
+
+  const getAgentStatusIcon = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle className="w-4 h-4 text-green-500" />;
+      case 'processing':
+        return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+      case 'failed':
+        return <AlertCircle className="w-4 h-4 text-red-500" />;
+      case 'pending':
+        return <div className="w-4 h-4 bg-yellow-500 rounded-full" />;
+      default:
+        return <div className="w-4 h-4 bg-gray-400 rounded-full" />;
+    }
+  };
+
   return (
     <div className="h-[calc(100vh-200px)] flex flex-col p-4">
       {/* Chat Messages */}
@@ -463,10 +649,10 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Type your message..."
+            placeholder={selectedAgentType ? `Enter your query for ${selectedAgentType === 'indices' ? 'Indices Creation' : 'Deep Research'} agent...` : "Type your message..."}
             className="border-0 shadow-none focus:ring-0 focus-visible:ring-0 bg-transparent px-0 text-sm h-8 flex-1"
             style={{fontSize: '0.98rem', width: '100%'}}
-            disabled={isLoading}
+            disabled={isLoading || agentLoading}
           />
           {/* Mention Suggestions */}
           {showMentions && (
@@ -529,15 +715,25 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="flex items-center gap-1 px-2 h-7 rounded-full text-xs font-normal">
                   <Sparkles className="w-3 h-3" />
-                  Agent
+                  {selectedAgentType ? (selectedAgentType === 'indices' ? 'Indices' : 'Research') : 'Agent'}
                   <ChevronDown className="w-3 h-3" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
-                <DropdownMenuItem disabled>
+                <DropdownMenuItem onClick={() => setSelectedAgentType('indices')}>
                   <Sparkles className="w-4 h-4 mr-2" />
-                  Agent features coming soon...
+                  Indices Creation
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSelectedAgentType('deep_research')}>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Deep Research
+                </DropdownMenuItem>
+                {selectedAgentType && (
+                  <DropdownMenuItem onClick={() => setSelectedAgentType(null)}>
+                    <FileText className="w-4 h-4 mr-2" />
+                    Clear Selection
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -545,14 +741,51 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
           <Button 
             onClick={handleSendMessage} 
             size="icon"
-            disabled={isLoading || !inputValue.trim()}
+            disabled={isLoading || agentLoading || !inputValue.trim()}
             className="h-8 w-8 rounded-full bg-black hover:bg-black/80 text-white flex items-center justify-center shadow-none"
             style={{marginLeft: 4}}
           >
-            <Send className="w-4 h-4" />
+            {agentLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </Button>
         </div>
       </div>
+
+
+
+      {/* Agent Queue Monitor */}
+      {currentAgentQueue && (
+        <div className="fixed bottom-20 right-4 w-80 bg-white border border-slate-200 rounded-lg shadow-lg p-4 max-h-96 overflow-y-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-medium text-sm">Agent Queue: {currentAgentQueue.queueKey}</h4>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCurrentAgentQueue(null)}
+              className="h-6 w-6 p-0"
+            >
+              ×
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {currentAgentQueue.tasks.map((task) => (
+              <div key={task.id} className="flex items-center gap-2 text-xs">
+                {getAgentStatusIcon(task.status)}
+                <span className="flex-1 truncate">{task.type}: {task.payload.filename || task.id}</span>
+                {task.status === 'pending' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => processNextTask(currentAgentQueue.queueKey)}
+                    className="h-5 px-2 text-xs"
+                  >
+                    Process
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

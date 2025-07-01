@@ -9,6 +9,8 @@ import { PDFQueueService } from './services/pdfQueueService';
 import { PDFProcessor } from './services/pdfProcessor';
 import { DatabaseService } from './services/databaseService';
 import { ChatService } from './services/chatService';
+import { IndicesDatabaseService } from './services/indicesDatabaseService';
+import agentService from './services/agent/agentService';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -20,6 +22,7 @@ const databaseService = new DatabaseService();
 const pdfProcessor = new PDFProcessor();
 const queueService = new PDFQueueService(pdfProcessor, databaseService);
 const chatService = new ChatService(databaseService);
+const indicesDatabaseService = new IndicesDatabaseService();
 
 // Ensure uploads directory exists
 const uploadDir = path.join(__dirname, '../uploads');
@@ -779,6 +782,61 @@ app.get('/debug/state', async (req, res) => {
     res.status(500).json({ error: 'Failed to get debug state' });
   }
 });
+
+// Indices endpoints
+app.get('/indices', async (req, res) => {
+  try {
+    const indices = await indicesDatabaseService.getAllIndices();
+    res.json(indices);
+  } catch (error) {
+    console.error('Get indices error:', error);
+    res.status(500).json({ error: 'Failed to get indices' });
+  }
+});
+
+app.get('/indices/names', async (req, res) => {
+  try {
+    const indexNames = await indicesDatabaseService.getUniqueIndexNames();
+    res.json(indexNames);
+  } catch (error) {
+    console.error('Get index names error:', error);
+    res.status(500).json({ error: 'Failed to get index names' });
+  }
+});
+
+app.get('/indices/:indexName', async (req, res) => {
+  try {
+    const indexName = req.params.indexName;
+    const indices = await indicesDatabaseService.getIndicesByName(indexName);
+    res.json(indices);
+  } catch (error) {
+    console.error('Get indices by name error:', error);
+    res.status(500).json({ error: 'Failed to get indices by name' });
+  }
+});
+
+app.get('/indices/statistics', async (req, res) => {
+  try {
+    const statistics = await indicesDatabaseService.getStatistics();
+    res.json(statistics);
+  } catch (error) {
+    console.error('Get indices statistics error:', error);
+    res.status(500).json({ error: 'Failed to get indices statistics' });
+  }
+});
+
+app.get('/indices/info', async (req, res) => {
+  try {
+    const info = await indicesDatabaseService.getDatabaseInfo();
+    res.json(info);
+  } catch (error) {
+    console.error('Get indices info error:', error);
+    res.status(500).json({ error: 'Failed to get indices info' });
+  }
+});
+
+// Agent endpoints
+app.use('/agent', agentService);
 
 // Error handling middleware
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
