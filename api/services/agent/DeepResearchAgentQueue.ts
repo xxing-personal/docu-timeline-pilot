@@ -64,12 +64,12 @@ Output as JSON (do not wrap in markdown code blocks):
         this.name = analysis.taskName || `Research: ${userQuery.substring(0, 30)}...`;
         this.intent = analysis.intent || '';
         
-        // Add intent analysis to memory
-        const intentMemory = `Intent Analysis: ${this.intent}\nTask Name: ${this.name}\nUser Query: ${userQuery}`;
+        // Add task info to memory (without intent since it's in prompt)
+        const taskMemory = `\n--- TASK INITIATION ---\nTask Name: ${this.name}\nUser Query: ${userQuery}\n--- END INITIATION ---\n`;
         console.log(`[DEEP RESEARCH AGENT] Adding to memory during initiation:`);
-        console.log(`[DEEP RESEARCH AGENT] Intent memory:`, intentMemory);
-        console.log(`[DEEP RESEARCH AGENT] --- End Intent Memory ---`);
-        await this.getMemory().add(intentMemory);
+        console.log(`[DEEP RESEARCH AGENT] Task memory:`, taskMemory);
+        console.log(`[DEEP RESEARCH AGENT] --- End Task Memory ---`);
+        await this.getMemory().add(taskMemory);
         
         console.log(`[DEEP RESEARCH AGENT] Task named: ${this.name}`);
         console.log(`[DEEP RESEARCH AGENT] Intent: ${this.intent}`);
@@ -188,7 +188,7 @@ Output as JSON (do not wrap in markdown code blocks):
       // Add completion summary to memory
       const researchTasks = tasks.filter(t => t.type === 'research');
       const writingTasks = tasks.filter(t => t.type === 'writing');
-      const summary = `Deep research completed. Researched ${researchTasks.length} documents and generated ${writingTasks.length} article(s). Task: ${this.name}`;
+      const summary = `\n--- TASK COMPLETION ---\nDeep research completed.\nResearched ${researchTasks.length} documents and generated ${writingTasks.length} article(s).\nTask: ${this.name}\n--- END COMPLETION ---\n`;
       await this.getMemory().add(summary);
       
       return true;

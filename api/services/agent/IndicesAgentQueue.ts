@@ -64,12 +64,12 @@ Output as JSON (do not wrap in markdown code blocks):
         this.name = analysis.taskName || `Indices: ${userQuery.substring(0, 30)}...`;
         this.intent = analysis.intent || '';
         
-        // Add intent analysis to memory
-        const intentMemory = `Intent Analysis: ${this.intent}\nTask Name: ${this.name}\nUser Query: ${userQuery}`;
+        // Add task info to memory (without intent since it's in prompt)
+        const taskMemory = `\n--- TASK INITIATION ---\nTask Name: ${this.name}\nUser Query: ${userQuery}\n--- END INITIATION ---\n`;
         console.log(`[INDICES AGENT] Adding to memory during initiation:`);
-        console.log(`[INDICES AGENT] Intent memory:`, intentMemory);
-        console.log(`[INDICES AGENT] --- End Intent Memory ---`);
-        await this.getMemory().add(intentMemory);
+        console.log(`[INDICES AGENT] Task memory:`, taskMemory);
+        console.log(`[INDICES AGENT] --- End Task Memory ---`);
+        await this.getMemory().add(taskMemory);
         
         console.log(`[INDICES AGENT] Task named: ${this.name}`);
         console.log(`[INDICES AGENT] Intent: ${this.intent}`);
@@ -164,7 +164,7 @@ Output as JSON (do not wrap in markdown code blocks):
       console.log(`[INDICES AGENT] All tasks completed successfully`);
       
       // Add completion summary to memory
-      const summary = `Indices creation completed for ${tasks.length} documents. Task: ${this.name}`;
+      const summary = `\n--- TASK COMPLETION ---\nIndices creation completed for ${tasks.length} documents.\nTask: ${this.name}\n--- END COMPLETION ---\n`;
       await this.getMemory().add(summary);
       
       return true;

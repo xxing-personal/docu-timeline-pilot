@@ -288,6 +288,64 @@ export class IndicesDatabaseService {
     };
   }
 
+  // Delete indices by task ID
+  async deleteIndicesByTaskId(taskId: string): Promise<number> {
+    await this.mutex.acquire();
+    
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      const initialCount = this.db.data!.indices.length;
+      this.db.data!.indices = this.db.data!.indices.filter(index => index.taskId !== taskId);
+      const deletedCount = initialCount - this.db.data!.indices.length;
+      
+      if (deletedCount > 0) {
+        // Update statistics
+        this.db.data!.statistics.totalIndices -= deletedCount;
+        // Note: We can't easily update pdfProcessingIndices vs indicesCreationIndices without tracking which were deleted
+        await this.db.write();
+        console.log(`[INDICES DATABASE] Deleted ${deletedCount} indices for task ID: ${taskId}`);
+      }
+      
+      return deletedCount;
+    } finally {
+      this.mutex.release();
+    }
+  }
+
+  // Delete indices by queue key (agent queue)
+  async deleteIndicesByQueueKey(queueKey: string): Promise<number> {
+    await this.mutex.acquire();
+    
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      const initialCount = this.db.data!.indices.length;
+      // Filter out indices where taskId starts with the queue key pattern
+      this.db.data!.indices = this.db.data!.indices.filter(index => {
+        if (!index.taskId) return true;
+        // Check if taskId matches the queue key pattern (e.g., "indices:query" or "deep_research:query")
+        const queueKeyPattern = queueKey.replace(/:/g, '-');
+        return !index.taskId.includes(queueKeyPattern);
+      });
+      
+      const deletedCount = initialCount - this.db.data!.indices.length;
+      
+      if (deletedCount > 0) {
+        // Update statistics
+        this.db.data!.statistics.totalIndices -= deletedCount;
+        await this.db.write();
+        console.log(`[INDICES DATABASE] Deleted ${deletedCount} indices for queue key: ${queueKey}`);
+      }
+      
+      return deletedCount;
+    } finally {
+      this.mutex.release();
+    }
+  }
+
   // Reset database
   async resetDatabase(): Promise<void> {
     await this.mutex.acquire();

@@ -35,13 +35,14 @@ export abstract class Worker {
     
     // Call subclass-specific logic
     const result = await this.coreProcess(taskPayload, context);
-    // Add result to memory
+    // Add result to memory with better formatting
     const resultString = typeof result === 'string' ? result : JSON.stringify(result);
+    const formattedResult = `\n--- TASK RESULT ---\n${resultString}\n--- END RESULT ---\n`;
     console.log(`[WORKER] Adding to memory for task ${taskId}:`);
-    console.log(`[WORKER] Result length: ${resultString.length} characters`);
-    console.log(`[WORKER] Result content:`, resultString);
+    console.log(`[WORKER] Result length: ${formattedResult.length} characters`);
+    console.log(`[WORKER] Result content:`, formattedResult);
     console.log(`[WORKER] --- End Result ---`);
-    await this.memory.add(resultString);
+    await this.memory.add(formattedResult);
     // Save snapshot to DB
     await this.memoryDb.addSnapshot({
       id: this.memory['id'],
@@ -74,9 +75,12 @@ export class ComparisonWorker extends Worker {
       try {
         const fs = require('fs/promises');
         const path = require('path');
-        const fullPath = path.join(process.cwd(), taskPayload.extractedTextPath);
+        // Check if the path is already absolute or relative
+        const fullPath = path.isAbsolute(taskPayload.extractedTextPath) 
+          ? taskPayload.extractedTextPath 
+          : path.join(process.cwd(), taskPayload.extractedTextPath);
         article = await fs.readFile(fullPath, 'utf-8');
-        console.log(`[COMPARISON WORKER] Loaded article from: ${taskPayload.extractedTextPath}`);
+        console.log(`[COMPARISON WORKER] Loaded article from: ${fullPath}`);
       } catch (error) {
         console.error(`[COMPARISON WORKER] Failed to load article from ${taskPayload.extractedTextPath}:`, error);
         throw new Error(`Failed to load article text: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -168,9 +172,12 @@ export class ResearchWorker extends Worker {
       try {
         const fs = require('fs/promises');
         const path = require('path');
-        const fullPath = path.join(process.cwd(), taskPayload.extractedTextPath);
+        // Check if the path is already absolute or relative
+        const fullPath = path.isAbsolute(taskPayload.extractedTextPath) 
+          ? taskPayload.extractedTextPath 
+          : path.join(process.cwd(), taskPayload.extractedTextPath);
         article = await fs.readFile(fullPath, 'utf-8');
-        console.log(`[RESEARCH WORKER] Loaded article from: ${taskPayload.extractedTextPath}`);
+        console.log(`[RESEARCH WORKER] Loaded article from: ${fullPath}`);
       } catch (error) {
         console.error(`[RESEARCH WORKER] Failed to load article from ${taskPayload.extractedTextPath}:`, error);
         throw new Error(`Failed to load article text: ${error instanceof Error ? error.message : 'Unknown error'}`);

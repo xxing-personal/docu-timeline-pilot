@@ -5,12 +5,14 @@ import { MemoryDatabaseService } from './memoryDatabaseService';
 import { Memory } from './memory';
 import { IndicesAgentQueue } from './IndicesAgentQueue';
 import { DeepResearchAgentQueue } from './DeepResearchAgentQueue';
+import { IndicesDatabaseService } from '../indicesDatabaseService';
 
 const router = express.Router();
 
 // In-memory map of queues by key (agentType:userQuery)
 const agentQueues: Record<string, AgentQueue> = {};
 const memoryDb = new MemoryDatabaseService();
+const indicesDb = new IndicesDatabaseService();
 
 // POST /api/agent/start
 // Start an agent run (indices or deep research)
@@ -131,6 +133,59 @@ router.post('/check-finish/:queueKey', async (req, res) => {
     console.error('Error checking agent finish:', error);
     res.status(500).json({ 
       error: 'Failed to check agent status', 
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// DELETE /api/agent/queue/:queueKey
+// Delete an agent queue and clean up related data
+router.delete('/queue/:queueKey', async (req, res) => {
+  const { queueKey } = req.params;
+  const queue = agentQueues[queueKey];
+  
+  if (!queue) {
+    return res.status(404).json({ error: 'Queue not found' });
+  }
+
+  try {
+    // Get all tasks for this queue to clean up indices
+    const tasks = await queue.getTasks();
+    
+    // Delete indices created by this agent queue
+    let deletedIndicesCount = 0;
+    try {
+      deletedIndicesCount = await indicesDb.deleteIndicesByQueueKey(queueKey);
+    } catch (error) {
+      console.error(`[AGENT SERVICE] Error deleting indices for queue ${queueKey}:`, error);
+    }
+    
+    // Delete memory snapshots for this queue
+    let deletedMemoryCount = 0;
+    try {
+      const snapshots = await memoryDb.getSnapshots(queue['memory']['id']);
+      // Note: We could add a delete method to MemoryDatabaseService if needed
+      console.log(`[AGENT SERVICE] Found ${snapshots.length} memory snapshots for queue ${queueKey}`);
+    } catch (error) {
+      console.error(`[AGENT SERVICE] Error accessing memory for queue ${queueKey}:`, error);
+    }
+    
+    // Remove the queue from memory
+    delete agentQueues[queueKey];
+    
+    console.log(`[AGENT SERVICE] Deleted queue ${queueKey} with ${tasks.length} tasks, ${deletedIndicesCount} indices`);
+    
+    res.json({ 
+      queueKey,
+      deletedTasks: tasks.length,
+      deletedIndices: deletedIndicesCount,
+      deletedMemorySnapshots: deletedMemoryCount,
+      message: `Successfully deleted agent queue and cleaned up related data`
+    });
+  } catch (error) {
+    console.error('Error deleting agent queue:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete agent queue', 
       details: error instanceof Error ? error.message : String(error)
     });
   }

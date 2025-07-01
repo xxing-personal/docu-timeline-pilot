@@ -155,9 +155,27 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
     }
   };
 
-  const deleteQueue = (queueKey: string) => {
-    setAgentQueues(prev => prev.filter(q => q.queueKey !== queueKey));
-    localStorage.setItem('agentQueues', JSON.stringify(agentQueues.filter(q => q.queueKey !== queueKey)));
+  const deleteQueue = async (queueKey: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/agent/queue/${queueKey}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Queue deleted:', data);
+        
+        // Remove from local state
+        setAgentQueues(prev => prev.filter(q => q.queueKey !== queueKey));
+        localStorage.setItem('agentQueues', JSON.stringify(agentQueues.filter(q => q.queueKey !== queueKey)));
+      } else {
+        console.error('Failed to delete queue:', response.statusText);
+        alert('Failed to delete agent queue. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error deleting queue:', error);
+      alert('Failed to delete agent queue. Please try again.');
+    }
   };
 
   const getStatusIcon = (status: string) => {
