@@ -30,9 +30,11 @@ router.post('/start', async (req, res) => {
     if (agentType === 'indices') {
       const memory = new Memory(`agent-indices-${Date.now()}`);
       agentQueue = new IndicesAgentQueue(memory);
+      await agentQueue.initializeQueue(`Indices Agent - ${userQuery}`, 'indices');
     } else if (agentType === 'deep_research') {
       const memory = new Memory(`agent-deep-research-${Date.now()}`);
       agentQueue = new DeepResearchAgentQueue(memory);
+      await agentQueue.initializeQueue(`Deep Research Agent - ${userQuery}`, 'deep_research');
     } else {
       return res.status(400).json({ error: 'Invalid agentType. Must be "indices" or "deep_research"' });
     }
@@ -71,8 +73,17 @@ router.post('/start', async (req, res) => {
 router.get('/queue', async (_req, res) => {
   const allQueues = await Promise.all(
     Object.entries(agentQueues).map(async ([key, queue]) => {
+      const queueInfo = await queue.getQueueInfo();
       const tasks = await queue.getTasks();
-      return { queueKey: key, tasks };
+      return { 
+        queueKey: key, 
+        queueInfo,
+        tasks,
+        taskCount: tasks.length,
+        pendingTasks: tasks.filter(t => t.status === 'pending').length,
+        completedTasks: tasks.filter(t => t.status === 'completed').length,
+        failedTasks: tasks.filter(t => t.status === 'failed').length
+      };
     })
   );
   res.json({ queues: allQueues });
@@ -90,7 +101,7 @@ router.get('/result/:queueKey/:taskId', async (req, res) => {
   if (!task) {
     return res.status(404).json({ error: 'Task not found' });
   }
-  res.json({ result: task.result });
+  res.json({ result: task.result, task });
 });
 
 // GET /api/agent/memory/:snapshotId
@@ -149,7 +160,8 @@ router.delete('/queue/:queueKey', async (req, res) => {
   }
 
   try {
-    // Get all tasks for this queue to clean up indices
+    // Get queue info and tasks
+    const queueInfo = await queue.getQueueInfo();
     const tasks = await queue.getTasks();
     
     // Delete indices created by this agent queue
@@ -168,6 +180,11 @@ router.delete('/queue/:queueKey', async (req, res) => {
       console.log(`[AGENT SERVICE] Found ${snapshots.length} memory snapshots for queue ${queueKey}`);
     } catch (error) {
       console.error(`[AGENT SERVICE] Error accessing memory for queue ${queueKey}:`, error);
+    }
+    
+    // Delete the queue from database (this will also delete tasks and payloads)
+    if (queueInfo) {
+      await (queue as any).db.deleteQueue(queueInfo.id);
     }
     
     // Remove the queue from memory
