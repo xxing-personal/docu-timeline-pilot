@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,7 @@ const AnalysisTab = () => {
   const [indices, setIndices] = useState<IndexEntry[]>([]);
   const [indexNames, setIndexNames] = useState<string[]>([]);
   const [activeIndex, setActiveIndex] = useState<string | null>(null);
+  const hasInitialized = useRef(false); // Track if we've set initial tab
 
   useEffect(() => {
     let isMounted = true;
@@ -51,8 +52,11 @@ const AnalysisTab = () => {
           // Collect all unique index names
           const uniqueScores = Array.from(new Set(data.map((index: IndexEntry) => index.indexName))) as string[];
           setIndexNames(uniqueScores);
-          if (uniqueScores.length > 0 && !activeIndex) {
+          
+          // Only set default tab on initial load, not on every refresh
+          if (uniqueScores.length > 0 && !activeIndex && !hasInitialized.current) {
             setActiveIndex(uniqueScores[0] as string);
+            hasInitialized.current = true;
           }
         }
       }

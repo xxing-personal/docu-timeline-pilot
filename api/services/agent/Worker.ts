@@ -148,6 +148,7 @@ Output only the JSON object as described above. Do not wrap it in markdown code 
             taskPayload.filename || 'unknown',
             output.evidence || [],
             output.rational || '',
+            taskPayload.timestamp,
             taskPayload.taskId
           );
         } catch (error) {
@@ -188,6 +189,7 @@ export class ResearchWorker extends Worker {
     const historicalResearch = context;
     const question = taskPayload.question || '';
     const intent = taskPayload.intent || '';
+    const timestamp = taskPayload.timestamp;
     const prompt = `
 You are given an article and some historical research context.
 
@@ -212,6 +214,7 @@ ${article}
 
 Question: ${question}
 ${intent ? `Intent: ${intent}` : ''}
+${timestamp ? `Document Timestamp: ${timestamp}` : ''}
 
 Historical Research Context: 
 ${historicalResearch}
@@ -224,7 +227,7 @@ Output only the JSON object as described above. Do not wrap it in markdown code 
         { role: 'system', content: 'You are a helpful assistant for research and summarization.' },
         { role: 'user', content: prompt }
       ],
-      max_tokens: 256,
+      max_tokens: 512,
       temperature: 0.3,
     });
     let output: any = {};
@@ -239,6 +242,12 @@ Output only the JSON object as described above. Do not wrap it in markdown code 
     } catch (e) {
       output = { error: 'Failed to parse OpenAI output as JSON', raw: completion.choices[0]?.message?.content };
     }
+    
+    // Add timestamp to output if available
+    if (timestamp) {
+      output.timestamp = timestamp;
+    }
+    
     return { ...output, summary };
   }
 }
@@ -252,11 +261,13 @@ export class WritingWorker extends Worker {
     const historicalResearch = context;
     // Optionally, pass in a mapping of article ids to article titles for citation
     const articleIdMap = taskPayload.articleIdMap || {};
+    const timestampMap = taskPayload.timestampMap || {};
     const prompt = `
 You are a writing assistant. Given the following historical research context, generate a long, detailed markdown article that answers the question. The article should:
 - Be in markdown format
 - Reference and cite specific articles by their article id (use [^article_id] for citation)
-- Include a references section at the end listing all cited article ids and their titles (if available)
+- Include a references section at the end listing all cited article ids, their titles, and timestamps (if available)
+- Consider the chronological order when discussing developments or trends
 
 Question:
 ${question}
@@ -267,6 +278,9 @@ ${historicalResearch}
 
 Article ID Map (for citation):
 ${JSON.stringify(articleIdMap, null, 2)}
+
+Timestamp Map (for chronological context):
+${JSON.stringify(timestampMap, null, 2)}
 
 Output only the markdown article.
 `;

@@ -106,32 +106,35 @@ Output as JSON (do not wrap in markdown code blocks):
             question: userQuery,
             intent: this.intent,
             filename: pdf.filename,
-            extractedTextPath: pdf.result!.extractedTextPath
+            extractedTextPath: pdf.result!.extractedTextPath,
+            timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.sortingTimestamp
           },
           status: 'pending',
         };
 
         await this.addTask(task);
-        console.log(`[DEEP RESEARCH AGENT] Added research task for: ${pdf.filename}`);
+        console.log(`[DEEP RESEARCH AGENT] Added research task for: ${pdf.filename}${task.payload.timestamp ? ` with timestamp: ${task.payload.timestamp}` : ''}`);
       } catch (error) {
         console.error(`[DEEP RESEARCH AGENT] Error adding task for ${pdf.filename}:`, error);
       }
     }
 
-    // Add a final WritingWorker task
+    // Add a final WritingWorker task with timestamp information
     const articleIdMap = Object.fromEntries(pdfTasks.map(pdf => [pdf.id, pdf.filename]));
+    const timestampMap = Object.fromEntries(pdfTasks.map(pdf => [pdf.id, pdf.result?.metadata?.inferredTimestamp || pdf.sortingTimestamp]));
     const writingTask: AgentTask = {
       id: `writing-${Date.now()}`,
       type: 'writing',
       payload: {
         question: userQuery,
         intent: this.intent,
-        articleIdMap
+        articleIdMap,
+        timestampMap
       },
       status: 'pending',
     };
     await this.addTask(writingTask);
-    console.log(`[DEEP RESEARCH AGENT] Added writing task for final article`);
+    console.log(`[DEEP RESEARCH AGENT] Added writing task for final article with timestamp information for ${pdfTasks.length} documents`);
   }
 
   async process(): Promise<void> {

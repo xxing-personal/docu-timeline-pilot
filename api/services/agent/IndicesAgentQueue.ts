@@ -106,13 +106,14 @@ Output as JSON (do not wrap in markdown code blocks):
             question: userQuery,
             intent: this.intent,
             filename: pdf.filename,
-            extractedTextPath: pdf.result!.extractedTextPath
+            extractedTextPath: pdf.result!.extractedTextPath,
+            timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.sortingTimestamp
           },
           status: 'pending',
         };
 
         await this.addTask(task);
-        console.log(`[INDICES AGENT] Added comparison task for: ${pdf.filename}`);
+        console.log(`[INDICES AGENT] Added comparison task for: ${pdf.filename}${task.payload.timestamp ? ` with timestamp: ${task.payload.timestamp}` : ''}`);
       } catch (error) {
         console.error(`[INDICES AGENT] Error adding task for ${pdf.filename}:`, error);
       }

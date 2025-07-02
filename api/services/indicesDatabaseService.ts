@@ -181,6 +181,7 @@ export class IndicesDatabaseService {
     filename: string,
     evidence: string[],
     rational: string,
+    timestamp?: string,
     taskId?: string
   ): Promise<void> {
     await this.mutex.acquire();
@@ -199,6 +200,7 @@ export class IndicesDatabaseService {
         evidence,
         rational,
         createdAt: new Date().toISOString(),
+        timestamp,
         taskId
       };
 
@@ -214,7 +216,7 @@ export class IndicesDatabaseService {
       this.db.data!.statistics.lastIndexDate = new Date().toISOString();
       
       await this.db.write();
-      console.log(`[INDICES DATABASE] Added indices creation index: ${indexName} for ${filename}`);
+      console.log(`[INDICES DATABASE] Added indices creation index: ${indexName} for ${filename}${timestamp ? ` with timestamp: ${timestamp}` : ''}`);
     } finally {
       this.mutex.release();
     }

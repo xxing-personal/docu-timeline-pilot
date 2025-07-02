@@ -6,6 +6,7 @@ import { Memory } from './memory';
 import { IndicesAgentQueue } from './IndicesAgentQueue';
 import { DeepResearchAgentQueue } from './DeepResearchAgentQueue';
 import { IndicesDatabaseService } from '../indicesDatabaseService';
+import { AgentQueueDatabaseService } from './agentQueueDatabaseService';
 
 const router = express.Router();
 
@@ -13,6 +14,47 @@ const router = express.Router();
 const agentQueues: Record<string, AgentQueue> = {};
 const memoryDb = new MemoryDatabaseService();
 const indicesDb = new IndicesDatabaseService();
+const queueDb = new AgentQueueDatabaseService();
+
+// Helper function to load existing queues from database on startup
+async function loadExistingQueues() {
+  try {
+    const allQueues = await queueDb.getAllQueues();
+    console.log(`[AGENT SERVICE] Found ${allQueues.length} existing queues in database`);
+    
+    for (const queueMetadata of allQueues) {
+      // Only load active queues - skip completed/failed ones unless needed
+      if (queueMetadata.status === 'active') {
+        try {
+          // Reconstruct the memory and queue objects
+          const memory = new Memory(`agent-${queueMetadata.type}-${Date.now()}`);
+          let agentQueue: AgentQueue;
+          
+          if (queueMetadata.type === 'indices') {
+            agentQueue = new IndicesAgentQueue(memory);
+          } else if (queueMetadata.type === 'deep_research') {
+            agentQueue = new DeepResearchAgentQueue(memory);
+          } else {
+            agentQueue = new AgentQueue(memory, queueMetadata.id);
+          }
+          
+          // Generate a queue key (we'll use the queue ID as the key)
+          const queueKey = queueMetadata.id;
+          agentQueues[queueKey] = agentQueue;
+          
+          console.log(`[AGENT SERVICE] Loaded queue: ${queueKey} (${queueMetadata.name})`);
+        } catch (error) {
+          console.error(`[AGENT SERVICE] Failed to load queue ${queueMetadata.id}:`, error);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[AGENT SERVICE] Failed to load existing queues:', error);
+  }
+}
+
+// Load existing queues on module initialization
+loadExistingQueues();
 
 // POST /api/agent/start
 // Start an agent run (indices or deep research)
@@ -69,39 +111,140 @@ router.post('/start', async (req, res) => {
 });
 
 // GET /api/agent/queue
-// Visualize the agent queue (for all queues for now)
+// Get all agent queues from database (not just in-memory ones)
 router.get('/queue', async (_req, res) => {
-  const allQueues = await Promise.all(
-    Object.entries(agentQueues).map(async ([key, queue]) => {
-      const queueInfo = await queue.getQueueInfo();
-      const tasks = await queue.getTasks();
-      return { 
-        queueKey: key, 
-        queueInfo,
-        tasks,
-        taskCount: tasks.length,
-        pendingTasks: tasks.filter(t => t.status === 'pending').length,
-        completedTasks: tasks.filter(t => t.status === 'completed').length,
-        failedTasks: tasks.filter(t => t.status === 'failed').length
-      };
-    })
-  );
-  res.json({ queues: allQueues });
+  try {
+    // Get all queues from database
+    const allQueuesFromDb = await queueDb.getAllQueues();
+    
+    const queues = await Promise.all(
+      allQueuesFromDb.map(async (queueMetadata) => {
+        try {
+          // Get tasks for this queue
+          const tasks = await queueDb.getQueueTasks(queueMetadata.id);
+          
+          // Convert TaskMetadata to AgentTask format with payloads
+          const agentTasks: AgentTask[] = await Promise.all(
+            tasks.map(async (taskMeta) => {
+              let payload = null;
+              let result = null;
+              
+              try {
+                payload = await queueDb.getTaskPayload(queueMetadata.id, taskMeta.id);
+              } catch (error) {
+                console.warn(`[AGENT SERVICE] Failed to load payload for task ${taskMeta.id}:`, error);
+              }
+              
+              // Try to load result if resultPath exists
+              if (taskMeta.resultPath) {
+                try {
+                  const fs = require('fs/promises');
+                  const resultData = await fs.readFile(taskMeta.resultPath, 'utf-8');
+                  result = JSON.parse(resultData);
+                } catch (error) {
+                  console.warn(`[AGENT SERVICE] Failed to load result for task ${taskMeta.id}:`, error);
+                }
+              }
+              
+              return {
+                id: taskMeta.id,
+                type: taskMeta.type,
+                payload,
+                status: taskMeta.status,
+                metadata: taskMeta.metadata,
+                resultPath: taskMeta.resultPath,
+                result,
+                error: taskMeta.error
+              };
+            })
+          );
+          
+          return {
+            queueKey: queueMetadata.id,
+            queueInfo: queueMetadata,
+            tasks: agentTasks,
+            taskCount: agentTasks.length,
+            pendingTasks: agentTasks.filter(t => t.status === 'pending').length,
+            completedTasks: agentTasks.filter(t => t.status === 'completed').length,
+            failedTasks: agentTasks.filter(t => t.status === 'failed').length
+          };
+        } catch (error) {
+          console.error(`[AGENT SERVICE] Error processing queue ${queueMetadata.id}:`, error);
+          return {
+            queueKey: queueMetadata.id,
+            queueInfo: queueMetadata,
+            tasks: [],
+            taskCount: 0,
+            pendingTasks: 0,
+            completedTasks: 0,
+            failedTasks: 0
+          };
+        }
+      })
+    );
+    
+    res.json({ queues });
+  } catch (error) {
+    console.error('[AGENT SERVICE] Error fetching queues:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch agent queues', 
+      details: error instanceof Error ? error.message : String(error),
+      queues: []
+    });
+  }
 });
 
 // GET /api/agent/result/:queueKey/:taskId
 // Retrieve agent result by queueKey and taskId
 router.get('/result/:queueKey/:taskId', async (req, res) => {
   const { queueKey, taskId } = req.params;
-  const queue = agentQueues[queueKey];
-  if (!queue) {
-    return res.status(404).json({ error: 'Queue not found' });
+  
+  try {
+    // Try to get from in-memory queue first
+    const queue = agentQueues[queueKey];
+    if (queue) {
+      const task = await queue.getTask(taskId);
+      if (task) {
+        return res.json({ result: task.result, task });
+      }
+    }
+    
+    // Fallback to database lookup
+    const taskMeta = await queueDb.getTask(queueKey, taskId);
+    if (!taskMeta) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const payload = await queueDb.getTaskPayload(queueKey, taskId);
+    let result = null;
+    
+    // Try to load result if resultPath exists
+    if (taskMeta.resultPath) {
+      try {
+        const fs = require('fs/promises');
+        const resultData = await fs.readFile(taskMeta.resultPath, 'utf-8');
+        result = JSON.parse(resultData);
+      } catch (error) {
+        console.warn(`[AGENT SERVICE] Failed to load result for task ${taskId}:`, error);
+      }
+    }
+    
+    const task: AgentTask = {
+      id: taskMeta.id,
+      type: taskMeta.type,
+      payload,
+      status: taskMeta.status,
+      metadata: taskMeta.metadata,
+      resultPath: taskMeta.resultPath,
+      result,
+      error: taskMeta.error
+    };
+    
+    res.json({ result: task.result, task });
+  } catch (error) {
+    console.error('Error getting task result:', error);
+    res.status(500).json({ error: 'Failed to get task result' });
   }
-  const task = await queue.getTask(taskId);
-  if (!task) {
-    return res.status(404).json({ error: 'Task not found' });
-  }
-  res.json({ result: task.result, task });
 });
 
 // GET /api/agent/memory/:snapshotId
@@ -119,22 +262,42 @@ router.get('/memory/:snapshotId/:version', async (req, res) => {
 // Check if agent processing has finished
 router.post('/check-finish/:queueKey', async (req, res) => {
   const { queueKey } = req.params;
-  const queue = agentQueues[queueKey];
   
-  if (!queue) {
-    return res.status(404).json({ error: 'Queue not found' });
-  }
-
   try {
-    let isFinished = false;
-    if (queue instanceof IndicesAgentQueue) {
-      isFinished = await queue.ensuringFinish();
-    } else if (queue instanceof DeepResearchAgentQueue) {
-      isFinished = await queue.ensuringFinish();
-    } else {
-      return res.status(400).json({ error: 'Unknown queue type' });
-    }
+    // Try to get from in-memory queue first
+    const queue = agentQueues[queueKey];
+    if (queue) {
+      let isFinished = false;
+      if (queue instanceof IndicesAgentQueue) {
+        isFinished = await queue.ensuringFinish();
+      } else if (queue instanceof DeepResearchAgentQueue) {
+        isFinished = await queue.ensuringFinish();
+      } else {
+        // Generic check based on task statuses
+        const tasks = await queue.getTasks();
+        const allCompleted = tasks.every(t => t.status === 'completed');
+        const anyFailed = tasks.some(t => t.status === 'failed');
+        isFinished = allCompleted || anyFailed;
+      }
 
+      return res.json({ 
+        queueKey, 
+        isFinished,
+        message: isFinished ? 'Agent processing completed' : 'Agent still processing'
+      });
+    }
+    
+    // Fallback to database check
+    const queueInfo = await queueDb.getQueue(queueKey);
+    if (!queueInfo) {
+      return res.status(404).json({ error: 'Queue not found' });
+    }
+    
+    const tasks = await queueDb.getQueueTasks(queueKey);
+    const allCompleted = tasks.every(t => t.status === 'completed');
+    const anyFailed = tasks.some(t => t.status === 'failed');
+    const isFinished = allCompleted || anyFailed;
+    
     res.json({ 
       queueKey, 
       isFinished,
@@ -153,16 +316,15 @@ router.post('/check-finish/:queueKey', async (req, res) => {
 // Delete an agent queue and clean up related data
 router.delete('/queue/:queueKey', async (req, res) => {
   const { queueKey } = req.params;
-  const queue = agentQueues[queueKey];
   
-  if (!queue) {
-    return res.status(404).json({ error: 'Queue not found' });
-  }
-
   try {
-    // Get queue info and tasks
-    const queueInfo = await queue.getQueueInfo();
-    const tasks = await queue.getTasks();
+    // Get queue info and tasks from database
+    const queueInfo = await queueDb.getQueue(queueKey);
+    if (!queueInfo) {
+      return res.status(404).json({ error: 'Queue not found' });
+    }
+    
+    const tasks = await queueDb.getQueueTasks(queueKey);
     
     // Delete indices created by this agent queue
     let deletedIndicesCount = 0;
@@ -175,20 +337,23 @@ router.delete('/queue/:queueKey', async (req, res) => {
     // Delete memory snapshots for this queue
     let deletedMemoryCount = 0;
     try {
-      const snapshots = await memoryDb.getSnapshots(queue['memory']['id']);
-      // Note: We could add a delete method to MemoryDatabaseService if needed
-      console.log(`[AGENT SERVICE] Found ${snapshots.length} memory snapshots for queue ${queueKey}`);
+      const queue = agentQueues[queueKey];
+      if (queue) {
+        const snapshots = await memoryDb.getSnapshots(queue['memory']['id']);
+        deletedMemoryCount = snapshots.length;
+        console.log(`[AGENT SERVICE] Found ${snapshots.length} memory snapshots for queue ${queueKey}`);
+      }
     } catch (error) {
       console.error(`[AGENT SERVICE] Error accessing memory for queue ${queueKey}:`, error);
     }
     
     // Delete the queue from database (this will also delete tasks and payloads)
-    if (queueInfo) {
-      await (queue as any).db.deleteQueue(queueInfo.id);
-    }
+    await queueDb.deleteQueue(queueKey);
     
-    // Remove the queue from memory
-    delete agentQueues[queueKey];
+    // Remove the queue from memory if it exists
+    if (agentQueues[queueKey]) {
+      delete agentQueues[queueKey];
+    }
     
     console.log(`[AGENT SERVICE] Deleted queue ${queueKey} with ${tasks.length} tasks, ${deletedIndicesCount} indices`);
     

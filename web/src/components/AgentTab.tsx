@@ -14,19 +14,31 @@ import { cn } from '@/lib/utils';
 interface AgentTask {
   id: string;
   type: string;
-  payload: any;
+  payload?: any;
   status: 'pending' | 'processing' | 'completed' | 'failed';
+  metadata?: Record<string, any>;
   resultPath?: string;
   result?: any;
   error?: string;
 }
 
+interface QueueInfo {
+  id: string;
+  name: string;
+  type: string;
+  status: 'active' | 'paused' | 'completed' | 'failed';
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface AgentQueue {
   queueKey: string;
+  queueInfo: QueueInfo;
   tasks: AgentTask[];
-  agentType: string;
-  userQuery: string;
-  createdAt: string;
+  taskCount: number;
+  pendingTasks: number;
+  completedTasks: number;
+  failedTasks: number;
 }
 
 interface AgentTabProps {
@@ -59,30 +71,24 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
         setLoading(true);
       }
       
-      // For now, we'll use localStorage since queues are in-memory on backend
-      // In a real implementation, you'd fetch from an API endpoint
-      const storedQueues = localStorage.getItem('agentQueues');
-      if (storedQueues) {
-        const queues = JSON.parse(storedQueues);
-        setAgentQueues(queues);
-        
-        // Fetch detailed task information for each queue
-        for (const queue of queues) {
-          try {
-            const response = await fetch(`${API_BASE_URL}/agent/queue/${queue.queueKey}`);
-            if (response.ok) {
-              const data = await response.json();
-              setAgentQueues(prev => prev.map(q => 
-                q.queueKey === queue.queueKey ? { ...q, tasks: data.tasks } : q
-              ));
-            }
-          } catch (error) {
-            console.error(`Error fetching queue ${queue.queueKey}:`, error);
-          }
-        }
+      const response = await fetch(`${API_BASE_URL}/agent/queue`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch agent queues');
       }
+      
+      const data = await response.json();
+      
+      // Handle both the success case and error case with fallback
+      if (data.queues && Array.isArray(data.queues)) {
+        setAgentQueues(data.queues);
+      } else {
+        console.warn('Invalid queue data structure:', data);
+        setAgentQueues([]);
+      }
+      
     } catch (error) {
       console.error('Error fetching agent queues:', error);
+      setAgentQueues([]);
     } finally {
       if (showLoading) {
         setLoading(false);
@@ -90,12 +96,12 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
     }
   };
 
-  const initiateAgent = async () => {
+  const startAgent = async () => {
     if (!selectedAgentType || !agentQuery.trim()) return;
     
     setAgentLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/agent/initiate`, {
+      const response = await fetch(`${API_BASE_URL}/agent/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -107,22 +113,15 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to initiate agent');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to start agent');
       }
 
       const data = await response.json();
+      console.log('Agent started:', data);
       
-      // Create new queue
-      const newQueue: AgentQueue = {
-        queueKey: data.queueKey,
-        tasks: [],
-        agentType: selectedAgentType,
-        userQuery: agentQuery,
-        createdAt: new Date().toISOString()
-      };
-      
-      setAgentQueues(prev => [newQueue, ...prev]);
-      localStorage.setItem('agentQueues', JSON.stringify([newQueue, ...agentQueues]));
+      // Refresh queues to show the new one
+      await fetchAgentQueues(false);
       
       // Close dialog
       setAgentDialogOpen(false);
@@ -130,32 +129,40 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
       setAgentQuery('');
       
     } catch (error) {
-      console.error('Agent initiation error:', error);
-      alert('Failed to start agent. Please try again.');
+      console.error('Agent start error:', error);
+      alert(`Failed to start agent: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setAgentLoading(false);
     }
   };
 
-  const processNextTask = async (queueKey: string) => {
+  const checkAgentFinish = async (queueKey: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/agent/process-next/${queueKey}`, {
+      const response = await fetch(`${API_BASE_URL}/agent/check-finish/${queueKey}`, {
         method: 'POST'
       });
       
       if (response.ok) {
         const data = await response.json();
-        console.log('Task processed:', data);
+        console.log('Agent finish check:', data);
         
-        // Refresh queue
+        // Refresh queue to get updated status
         await fetchAgentQueues(false);
+        
+        if (data.isFinished) {
+          alert('Agent processing completed!');
+        }
       }
     } catch (error) {
-      console.error('Error processing next task:', error);
+      console.error('Error checking agent finish:', error);
     }
   };
 
   const deleteQueue = async (queueKey: string) => {
+    if (!confirm('Are you sure you want to delete this agent queue? This will remove all tasks and data.')) {
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/agent/queue/${queueKey}`, {
         method: 'DELETE'
@@ -165,12 +172,12 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
         const data = await response.json();
         console.log('Queue deleted:', data);
         
-        // Remove from local state
-        setAgentQueues(prev => prev.filter(q => q.queueKey !== queueKey));
-        localStorage.setItem('agentQueues', JSON.stringify(agentQueues.filter(q => q.queueKey !== queueKey)));
+        // Refresh queues
+        await fetchAgentQueues(false);
       } else {
-        console.error('Failed to delete queue:', response.statusText);
-        alert('Failed to delete agent queue. Please try again.');
+        const errorData = await response.json();
+        console.error('Failed to delete queue:', errorData);
+        alert(`Failed to delete agent queue: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Error deleting queue:', error);
@@ -188,6 +195,8 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
         return <AlertCircle className="w-4 h-4 text-red-500" />;
       case 'pending':
         return <Clock className="w-4 h-4 text-yellow-500" />;
+      case 'active':
+        return <Play className="w-4 h-4 text-blue-500" />;
       default:
         return <Clock className="w-4 h-4 text-slate-400" />;
     }
@@ -198,10 +207,12 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
       case 'completed':
         return 'bg-green-100 text-green-800 border-green-200';
       case 'processing':
+      case 'active':
         return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'failed':
         return 'bg-red-100 text-red-800 border-red-200';
       case 'pending':
+      case 'paused':
         return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       default:
         return 'bg-slate-100 text-slate-600 border-slate-200';
@@ -236,23 +247,17 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
     return new Date(dateString).toLocaleString();
   };
 
-  const getQueueProgress = (queue: AgentQueue) => {
-    const total = queue.tasks.length;
-    const completed = queue.tasks.filter(t => t.status === 'completed').length;
-    const failed = queue.tasks.filter(t => t.status === 'failed').length;
-    const processing = queue.tasks.filter(t => t.status === 'processing').length;
-    
-    return { total, completed, failed, processing };
-  };
-
   const getQueueStatus = (queue: AgentQueue) => {
-    const { total, completed, failed } = getQueueProgress(queue);
-    
-    if (failed > 0 && completed + failed === total) {
+    // Use queue info status if available, otherwise derive from tasks
+    if (queue.queueInfo?.status) {
+      return queue.queueInfo.status;
+    }
+
+    if (queue.failedTasks > 0 && queue.completedTasks + queue.failedTasks === queue.taskCount) {
       return 'failed';
-    } else if (completed === total) {
+    } else if (queue.completedTasks === queue.taskCount && queue.taskCount > 0) {
       return 'completed';
-    } else if (completed + failed < total) {
+    } else if (queue.completedTasks + queue.failedTasks < queue.taskCount) {
       return 'processing';
     } else {
       return 'pending';
@@ -358,7 +363,6 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
       <ScrollArea className="h-[calc(100%-120px)]">
         <div className="space-y-4">
           {agentQueues.map((queue) => {
-            const progress = getQueueProgress(queue);
             const queueStatus = getQueueStatus(queue);
             
             return (
@@ -369,13 +373,13 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                     <Sparkles className="w-5 h-5 text-purple-500" />
                     <div>
                       <h4 className="font-medium text-slate-900">
-                        {getAgentTypeDisplay(queue.agentType)}
+                        {queue.queueInfo?.name || getAgentTypeDisplay(queue.queueInfo?.type || 'unknown')}
                       </h4>
                       <p className="text-sm text-slate-500">
-                        Query: "{queue.userQuery}"
+                        Queue: {queue.queueKey}
                       </p>
                       <p className="text-xs text-slate-400">
-                        Created {formatDate(queue.createdAt)}
+                        Created {queue.queueInfo?.createdAt ? formatDate(queue.queueInfo.createdAt) : 'Unknown'}
                       </p>
                     </div>
                   </div>
@@ -399,21 +403,21 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                 <WorkflowStepper tasks={queue.tasks} />
 
                 {/* Progress Bar (only if there are tasks) */}
-                {progress.total > 0 && (
+                {queue.taskCount > 0 && (
                   <div className="mb-3">
                     <div className="flex justify-between text-xs text-slate-600 mb-1">
-                      <span>Progress: {progress.completed}/{progress.total} completed</span>
-                      <span>{Math.round((progress.completed / progress.total) * 100)}%</span>
+                      <span>Progress: {queue.completedTasks}/{queue.taskCount} completed</span>
+                      <span>{Math.round((queue.completedTasks / queue.taskCount) * 100)}%</span>
                     </div>
                     <div className="w-full bg-slate-200 rounded-full h-2">
                       <div 
                         className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${(progress.completed / progress.total) * 100}%` }}
+                        style={{ width: `${(queue.completedTasks / queue.taskCount) * 100}%` }}
                       ></div>
                     </div>
-                    {progress.failed > 0 && (
+                    {queue.failedTasks > 0 && (
                       <div className="flex justify-between text-xs text-red-600 mt-1">
-                        <span>{progress.failed} failed</span>
+                        <span>{queue.failedTasks} failed</span>
                       </div>
                     )}
                   </div>
@@ -428,9 +432,14 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                         <span className="text-sm font-medium">
                           {getTaskTypeDisplay(task.type)}
                         </span>
-                        {task.payload.filename && (
+                        {task.payload?.filename && (
                           <span className="text-xs text-slate-500">
                             ({task.payload.filename})
+                          </span>
+                        )}
+                        {task.metadata?.filename && (
+                          <span className="text-xs text-slate-500">
+                            ({task.metadata.filename})
                           </span>
                         )}
                       </div>
@@ -438,15 +447,15 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                         <Badge variant="outline" className={getStatusColor(task.status)}>
                           <span className="capitalize">{task.status}</span>
                         </Badge>
-                        {task.status === 'pending' && (
+                        {queue.pendingTasks > 0 && queueStatus === 'active' && (
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => processNextTask(queue.queueKey)}
+                            onClick={() => checkAgentFinish(queue.queueKey)}
                             className="h-6 px-2 text-xs"
                           >
-                            <Play className="w-3 h-3 mr-1" />
-                            Process
+                            <RefreshCw className="w-3 h-3 mr-1" />
+                            Check
                           </Button>
                         )}
                       </div>
@@ -458,7 +467,7 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                 <div className="mt-3 pt-3 border-t border-slate-200">
                   <div className="flex justify-between items-center">
                     <span className="text-xs text-slate-500">
-                      Queue ID: {queue.queueKey}
+                      Tasks: {queue.taskCount} total, {queue.pendingTasks} pending
                     </span>
                     <Button
                       variant="outline"
@@ -519,7 +528,7 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                 Cancel
               </Button>
               <Button 
-                onClick={initiateAgent} 
+                onClick={startAgent} 
                 disabled={!selectedAgentType || !agentQuery.trim() || agentLoading}
               >
                 {agentLoading ? 'Starting...' : 'Start Agent'}
@@ -534,15 +543,23 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
         <Dialog open={!!selectedQueue} onOpenChange={() => setSelectedQueue(null)}>
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Queue Details: {getAgentTypeDisplay(selectedQueue.agentType)}</DialogTitle>
+              <DialogTitle>
+                Queue Details: {selectedQueue.queueInfo?.name || 'Unknown Queue'}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <Label className="text-sm font-medium">Query</Label>
-                <p className="text-sm text-slate-600 mt-1">{selectedQueue.userQuery}</p>
+                <Label className="text-sm font-medium">Queue Information</Label>
+                <div className="mt-2 p-3 bg-slate-50 rounded">
+                  <p className="text-sm"><strong>ID:</strong> {selectedQueue.queueInfo?.id}</p>
+                  <p className="text-sm"><strong>Type:</strong> {selectedQueue.queueInfo?.type}</p>
+                  <p className="text-sm"><strong>Status:</strong> {selectedQueue.queueInfo?.status}</p>
+                  <p className="text-sm"><strong>Created:</strong> {selectedQueue.queueInfo?.createdAt ? formatDate(selectedQueue.queueInfo.createdAt) : 'Unknown'}</p>
+                  <p className="text-sm"><strong>Updated:</strong> {selectedQueue.queueInfo?.updatedAt ? formatDate(selectedQueue.queueInfo.updatedAt) : 'Unknown'}</p>
+                </div>
               </div>
               <div>
-                <Label className="text-sm font-medium">Tasks</Label>
+                <Label className="text-sm font-medium">Tasks ({selectedQueue.taskCount})</Label>
                 <div className="space-y-2 mt-2">
                   {selectedQueue.tasks.map((task) => (
                     <div key={task.id} className="p-3 border border-slate-200 rounded">
@@ -553,8 +570,11 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                           <span className="ml-1 capitalize">{task.status}</span>
                         </Badge>
                       </div>
-                      {task.payload.filename && (
-                        <p className="text-sm text-slate-600">File: {task.payload.filename}</p>
+                      <p className="text-sm text-slate-600">ID: {task.id}</p>
+                      {(task.payload?.filename || task.metadata?.filename) && (
+                        <p className="text-sm text-slate-600">
+                          File: {task.payload?.filename || task.metadata?.filename}
+                        </p>
                       )}
                       {task.error && (
                         <p className="text-sm text-red-600 mt-1">Error: {task.error}</p>
