@@ -299,6 +299,49 @@ Output only the markdown article.
     } catch (e) {
       article = 'Failed to generate article.';
     }
-    return { article };
+    
+    // Save the article as a markdown file
+    const fs = require('fs/promises');
+    const path = require('path');
+    
+    try {
+      // Create research-articles directory if it doesn't exist
+      const articlesDir = path.join(process.cwd(), 'api', 'research-articles');
+      await fs.mkdir(articlesDir, { recursive: true });
+      
+      // Generate filename from question (sanitized)
+      const sanitizedQuestion = question
+        .replace(/[^a-z0-9\s]/gi, '') // Remove special characters
+        .replace(/\s+/g, '_') // Replace spaces with underscores
+        .toLowerCase()
+        .substring(0, 50); // Limit length
+        
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `${timestamp}_${sanitizedQuestion}.md`;
+      const filepath = path.join(articlesDir, filename);
+      
+      // Create article with metadata header
+      const articleWithMeta = `---
+title: "${question}"
+intent: "${intent}"
+generated: ${new Date().toISOString()}
+documents_analyzed: ${Object.keys(articleIdMap).length}
+query: "${question}"
+---
+
+${article}`;
+      
+      await fs.writeFile(filepath, articleWithMeta, 'utf-8');
+      console.log(`[WRITING WORKER] Saved article to: ${filepath}`);
+      
+      return { 
+        article, 
+        filepath: path.relative(process.cwd(), filepath),
+        filename 
+      };
+    } catch (saveError) {
+      console.error('[WRITING WORKER] Failed to save article file:', saveError);
+      return { article };
+    }
   }
 } 

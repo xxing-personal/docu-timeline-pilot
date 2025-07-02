@@ -838,6 +838,146 @@ app.get('/indices/info', async (req, res) => {
 // Agent endpoints
 app.use('/agent', agentService);
 
+// Research Articles API endpoints
+app.get('/api/research-articles', async (req, res) => {
+  try {
+    const path = require('path');
+    const fs = require('fs/promises');
+    
+    const articlesDir = path.join(__dirname, 'research-articles');
+    
+    // Check if directory exists
+    try {
+      await fs.access(articlesDir);
+    } catch {
+      return res.json({ articles: [] });
+    }
+    
+    // Read directory contents
+    const files = await fs.readdir(articlesDir);
+    const markdownFiles = files.filter((file: string) => file.endsWith('.md'));
+    
+    // Get file metadata
+    const articles = await Promise.all(
+      markdownFiles.map(async (filename: string) => {
+        try {
+          const filepath = path.join(articlesDir, filename);
+          const stats = await fs.stat(filepath);
+          const content = await fs.readFile(filepath, 'utf-8');
+          
+          // Parse frontmatter
+          const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+          let metadata = {};
+          let articleContent = content;
+          
+          if (frontmatterMatch) {
+            try {
+              const frontmatter = frontmatterMatch[1];
+              const lines = frontmatter.split('\n');
+              metadata = lines.reduce((acc: any, line: string) => {
+                const [key, ...valueParts] = line.split(':');
+                if (key && valueParts.length > 0) {
+                  const value = valueParts.join(':').trim().replace(/^["']|["']$/g, '');
+                  acc[key.trim()] = value;
+                }
+                return acc;
+              }, {});
+              
+              // Remove frontmatter from content
+              articleContent = content.replace(/^---\n[\s\S]*?\n---\n/, '');
+            } catch (parseError) {
+              console.warn(`Failed to parse frontmatter for ${filename}:`, parseError);
+            }
+          }
+          
+          return {
+            filename,
+            filepath: path.relative(__dirname, filepath),
+            title: (metadata as any).title || filename.replace('.md', ''),
+            query: (metadata as any).query || (metadata as any).title || filename.replace('.md', ''),
+            intent: (metadata as any).intent || '',
+            generated: (metadata as any).generated || stats.mtime.toISOString(),
+            documentsAnalyzed: parseInt((metadata as any).documents_analyzed) || 0,
+            size: stats.size,
+            lastModified: stats.mtime.toISOString(),
+            preview: articleContent.substring(0, 200).replace(/[#*]/g, '').trim()
+          };
+        } catch (error) {
+          console.error(`Error processing file ${filename}:`, error);
+          return null;
+        }
+      })
+    );
+    
+    // Filter out null results and sort by creation date (newest first)
+    const validArticles = articles
+      .filter(article => article !== null)
+      .sort((a, b) => new Date(b.generated).getTime() - new Date(a.generated).getTime());
+    
+    res.json({ articles: validArticles });
+  } catch (error) {
+    console.error('Error listing research articles:', error);
+    res.status(500).json({ error: 'Failed to list research articles' });
+  }
+});
+
+app.get('/api/research-articles/:filename', async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const path = require('path');
+    const fs = require('fs/promises');
+    
+    // Validate filename to prevent directory traversal
+    if (filename.includes('..') || filename.includes('/') || !filename.endsWith('.md')) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+    
+    const articlesDir = path.join(__dirname, 'research-articles');
+    const filepath = path.join(articlesDir, filename);
+    
+    try {
+      const content = await fs.readFile(filepath, 'utf-8');
+      
+      // Parse frontmatter and content
+      const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+      let metadata = {};
+      let articleContent = content;
+      
+      if (frontmatterMatch) {
+        try {
+          const frontmatter = frontmatterMatch[1];
+          const lines = frontmatter.split('\n');
+          metadata = lines.reduce((acc: any, line: string) => {
+            const [key, ...valueParts] = line.split(':');
+            if (key && valueParts.length > 0) {
+              const value = valueParts.join(':').trim().replace(/^["']|["']$/g, '');
+              acc[key.trim()] = value;
+            }
+            return acc;
+          }, {});
+          
+          // Remove frontmatter from content
+          articleContent = content.replace(/^---\n[\s\S]*?\n---\n/, '');
+        } catch (parseError) {
+          console.warn(`Failed to parse frontmatter for ${filename}:`, parseError);
+        }
+      }
+      
+      res.json({
+        filename,
+        metadata,
+        content: articleContent,
+        rawContent: content
+      });
+    } catch (readError) {
+      res.status(404).json({ error: 'Article not found' });
+    }
+  } catch (error) {
+    console.error('Error serving research article:', error);
+    res.status(500).json({ error: 'Failed to serve research article' });
+  }
+});
+
 // Error handling middleware
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Unhandled error:', error);
