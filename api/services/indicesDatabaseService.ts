@@ -3,30 +3,59 @@ import { JSONFile } from 'lowdb/node';
 import path from 'path';
 import fs from 'fs/promises';
 
+// Individual index entry (now nested under task)
 export interface IndexEntry {
   id: string;
   indexName: string;
   scoreValue: number;
-  articleId: string;
-  filename: string;
   source: 'pdf_processing' | 'indices_creation';
-  evidence: string[];
+  quotes: string[];
   rational: string;
-  createdAt: string;
-  timestamp?: string; // Inferred timestamp from document
-  taskId?: string; // ID of the task that created this index
 }
 
-interface IndicesDatabaseSchema {
+// Task information
+export interface TaskInfo {
+  id: string;
+  type: string;
+  filename: string;
+  articleId: string;
+  status: string;
+  createdAt: string;
+  timestamp?: string; // Inferred timestamp from document
+}
+
+// Task with its indices
+export interface TaskWithIndices {
+  taskInfo: TaskInfo;
   indices: IndexEntry[];
+}
+
+// Agent information
+export interface AgentInfo {
+  name: string;
+  type: string;
+  queueKey: string;
+  createdAt: string;
+  status: string;
+}
+
+// Agent with its tasks
+export interface AgentWithTasks {
+  agentInfo: AgentInfo;
+  tasks: { [taskId: string]: TaskWithIndices };
+}
+
+// New nested database schema
+interface IndicesDatabaseSchema {
+  agents: { [queueKey: string]: AgentWithTasks };
   settings: {
-    lastBackup: string;
+    lastBackup: string | null;
     version: string;
   };
   statistics: {
+    totalAgents: number;
+    totalTasks: number;
     totalIndices: number;
-    pdfProcessingIndices: number;
-    indicesCreationIndices: number;
     lastIndexDate: string;
   };
 }
@@ -66,15 +95,15 @@ export class IndicesDatabaseService {
     this.dbPath = path.join(process.cwd(), 'data', 'indices-database.json');
     const adapter = new JSONFile<IndicesDatabaseSchema>(this.dbPath);
     this.db = new Low(adapter, {
-      indices: [],
+      agents: {},
       settings: {
-        lastBackup: new Date().toISOString(),
-        version: '1.0.0'
+        lastBackup: null,
+        version: '2.0.0'
       },
       statistics: {
+        totalAgents: 0,
+        totalTasks: 0,
         totalIndices: 0,
-        pdfProcessingIndices: 0,
-        indicesCreationIndices: 0,
         lastIndexDate: new Date().toISOString()
       }
     });
@@ -97,27 +126,139 @@ export class IndicesDatabaseService {
       
       if (!this.db.data) {
         this.db.data = {
-          indices: [],
+          agents: {},
           settings: {
-            lastBackup: new Date().toISOString(),
-            version: '1.0.0'
+            lastBackup: null,
+            version: '2.0.0'
           },
           statistics: {
+            totalAgents: 0,
+            totalTasks: 0,
             totalIndices: 0,
-            pdfProcessingIndices: 0,
-            indicesCreationIndices: 0,
             lastIndexDate: new Date().toISOString()
           }
         };
         await this.db.write();
-        console.log('[INDICES DATABASE] Initialized new database');
+        console.log('[INDICES DATABASE] Initialized new nested database structure');
       } else {
-        console.log('[INDICES DATABASE] Loaded existing database');
+        // Check if we need to migrate from old structure
+        if (!this.db.data.agents && (this.db.data as any).indices) {
+          console.log('[INDICES DATABASE] Migrating from old flat structure to new nested structure');
+          await this.migrateFromFlatStructure();
+        } else {
+          console.log('[INDICES DATABASE] Loaded existing nested database structure');
+        }
       }
     } catch (error) {
       console.error('[INDICES DATABASE] Error initializing database:', error);
       throw error;
     }
+  }
+
+  // Migration function to convert old flat structure to new nested structure
+  private async migrateFromFlatStructure(): Promise<void> {
+    try {
+      const oldData = this.db.data as any;
+      const oldIndices = oldData.indices || [];
+      
+      console.log(`[INDICES DATABASE] Migrating ${oldIndices.length} indices from flat structure`);
+      
+      const newData: IndicesDatabaseSchema = {
+        agents: {},
+        settings: {
+          lastBackup: oldData.settings?.lastBackup || null,
+          version: '2.0.0'
+        },
+        statistics: {
+          totalAgents: 0,
+          totalTasks: 0,
+          totalIndices: 0,
+          lastIndexDate: oldData.statistics?.lastIndexDate || new Date().toISOString()
+        }
+      };
+      
+      // Group indices by taskId (or create default grouping)
+      const taskGroups: { [key: string]: any[] } = {};
+      
+      for (const index of oldIndices) {
+        const taskKey = index.taskId || 'unknown_task';
+        if (!taskGroups[taskKey]) {
+          taskGroups[taskKey] = [];
+        }
+        taskGroups[taskKey].push(index);
+      }
+      
+      // Create agents and tasks from grouped data
+      for (const [taskKey, indices] of Object.entries(taskGroups)) {
+        const firstIndex = indices[0];
+        const agentKey = this.extractAgentKeyFromTaskId(taskKey);
+        
+        // Create agent if it doesn't exist
+        if (!newData.agents[agentKey]) {
+          newData.agents[agentKey] = {
+            agentInfo: {
+              name: `Migrated Agent (${firstIndex.source})`,
+              type: firstIndex.source === 'pdf_processing' ? 'pdf_processing' : 'indices_creation',
+              queueKey: agentKey,
+              createdAt: firstIndex.createdAt,
+              status: 'completed'
+            },
+            tasks: {}
+          };
+          newData.statistics.totalAgents++;
+        }
+        
+        // Create task
+        const taskInfo: TaskInfo = {
+          id: taskKey,
+          type: firstIndex.source === 'pdf_processing' ? 'pdf_processing' : 'comparison',
+          filename: firstIndex.filename,
+          articleId: firstIndex.articleId,
+          status: 'completed',
+          createdAt: firstIndex.createdAt,
+          timestamp: firstIndex.timestamp
+        };
+        
+        // Convert indices to new format
+        const convertedIndices: IndexEntry[] = indices.map(index => ({
+          id: index.id,
+          indexName: index.indexName,
+          scoreValue: index.scoreValue,
+          source: index.source,
+          quotes: index.quotes || [],
+          rational: index.rational
+        }));
+        
+        newData.agents[agentKey].tasks[taskKey] = {
+          taskInfo,
+          indices: convertedIndices
+        };
+        
+        newData.statistics.totalTasks++;
+        newData.statistics.totalIndices += convertedIndices.length;
+      }
+      
+      // Update database with new structure
+      this.db.data = newData;
+      await this.db.write();
+      
+      console.log(`[INDICES DATABASE] Migration completed: ${newData.statistics.totalAgents} agents, ${newData.statistics.totalTasks} tasks, ${newData.statistics.totalIndices} indices`);
+    } catch (error) {
+      console.error('[INDICES DATABASE] Error during migration:', error);
+      throw error;
+    }
+  }
+  
+  private extractAgentKeyFromTaskId(taskId: string): string {
+    // Try to extract agent key from task ID patterns
+    if (taskId.includes('indices-comparison-')) {
+      return 'indices_creation_agent';
+    } else if (taskId.includes('research-')) {
+      return 'deep_research_agent';
+    } else if (taskId === 'unknown_task') {
+      return 'legacy_agent';
+    }
+    return `agent_${taskId.split('_')[0] || 'unknown'}`;
   }
 
   // Add index from PDF processing (analysisScores)
@@ -134,40 +275,59 @@ export class IndicesDatabaseService {
       await this.ensureInitialized();
       await this.db.read();
       
-      console.log(`[INDICES DATABASE] Database data structure:`, {
-        hasData: !!this.db.data,
-        hasIndices: !!this.db.data?.indices,
-        indicesLength: this.db.data?.indices?.length || 0,
-        hasStatistics: !!this.db.data?.statistics
-      });
-
-      const entries: IndexEntry[] = Object.entries(analysisScores).map(([indexName, scoreValue]) => ({
+      const agentKey = 'pdf_processing_agent';
+      const actualTaskId = taskId || `pdf_task_${Date.now()}`;
+      
+      // Ensure agent exists
+      if (!this.db.data!.agents[agentKey]) {
+        this.db.data!.agents[agentKey] = {
+          agentInfo: {
+            name: 'PDF Processing Agent',
+            type: 'pdf_processing',
+            queueKey: agentKey,
+            createdAt: new Date().toISOString(),
+            status: 'active'
+          },
+          tasks: {}
+        };
+        this.db.data!.statistics.totalAgents++;
+      }
+      
+      // Create task if it doesn't exist
+      if (!this.db.data!.agents[agentKey].tasks[actualTaskId]) {
+        this.db.data!.agents[agentKey].tasks[actualTaskId] = {
+          taskInfo: {
+            id: actualTaskId,
+            type: 'pdf_processing',
+            filename,
+            articleId,
+            status: 'completed',
+            createdAt: new Date().toISOString(),
+            timestamp: inferredTimestamp
+          },
+          indices: []
+        };
+        this.db.data!.statistics.totalTasks++;
+      }
+      
+      // Add indices to task
+      const newIndices: IndexEntry[] = Object.entries(analysisScores).map(([indexName, scoreValue]) => ({
         id: `index_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         indexName,
         scoreValue,
-        articleId,
-        filename,
         source: 'pdf_processing' as const,
-        evidence: [], // PDF processing doesn't provide evidence
-        rational: `Auto-generated index from PDF processing for ${indexName}`,
-        createdAt: new Date().toISOString(),
-        timestamp: inferredTimestamp,
-        taskId
+        quotes: [], // PDF processing doesn't provide quotes
+        rational: `Auto-generated index from PDF processing for ${indexName}`
       }));
-
-      // Ensure indices array exists
-      if (!this.db.data!.indices) {
-        this.db.data!.indices = [];
-      }
-      this.db.data!.indices.push(...entries);
+      
+      this.db.data!.agents[agentKey].tasks[actualTaskId].indices.push(...newIndices);
       
       // Update statistics
-      this.db.data!.statistics.totalIndices += entries.length;
-      this.db.data!.statistics.pdfProcessingIndices += entries.length;
+      this.db.data!.statistics.totalIndices += newIndices.length;
       this.db.data!.statistics.lastIndexDate = new Date().toISOString();
       
       await this.db.write();
-      console.log(`[INDICES DATABASE] Added ${entries.length} PDF processing indices for ${filename}`);
+      console.log(`[INDICES DATABASE] Added ${newIndices.length} PDF processing indices for ${filename}`);
     } finally {
       this.mutex.release();
     }
@@ -179,7 +339,7 @@ export class IndicesDatabaseService {
     scoreValue: number,
     articleId: string,
     filename: string,
-    evidence: string[],
+    quotes: string[],
     rational: string,
     timestamp?: string,
     taskId?: string
@@ -190,72 +350,174 @@ export class IndicesDatabaseService {
       await this.ensureInitialized();
       await this.db.read();
 
-      const entry: IndexEntry = {
+      const agentKey = this.extractAgentKeyFromTaskId(taskId || 'indices_creation');
+      const actualTaskId = taskId || `task_${Date.now()}`;
+      
+      // Ensure agent exists
+      if (!this.db.data!.agents[agentKey]) {
+        this.db.data!.agents[agentKey] = {
+          agentInfo: {
+            name: 'Indices Creation Agent',
+            type: 'indices_creation',
+            queueKey: agentKey,
+            createdAt: new Date().toISOString(),
+            status: 'active'
+          },
+          tasks: {}
+        };
+        this.db.data!.statistics.totalAgents++;
+      }
+      
+      // Create task if it doesn't exist
+      if (!this.db.data!.agents[agentKey].tasks[actualTaskId]) {
+        this.db.data!.agents[agentKey].tasks[actualTaskId] = {
+          taskInfo: {
+            id: actualTaskId,
+            type: 'comparison',
+            filename,
+            articleId,
+            status: 'completed',
+            createdAt: new Date().toISOString(),
+            timestamp
+          },
+          indices: []
+        };
+        this.db.data!.statistics.totalTasks++;
+      }
+      
+      // Add index to task
+      const newIndex: IndexEntry = {
         id: `index_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         indexName,
         scoreValue,
-        articleId,
-        filename,
         source: 'indices_creation' as const,
-        evidence,
-        rational,
-        createdAt: new Date().toISOString(),
-        timestamp,
-        taskId
+        quotes,
+        rational
       };
-
-      // Ensure indices array exists
-      if (!this.db.data!.indices) {
-        this.db.data!.indices = [];
-      }
-      this.db.data!.indices.push(entry);
+      
+      this.db.data!.agents[agentKey].tasks[actualTaskId].indices.push(newIndex);
       
       // Update statistics
       this.db.data!.statistics.totalIndices++;
-      this.db.data!.statistics.indicesCreationIndices++;
       this.db.data!.statistics.lastIndexDate = new Date().toISOString();
       
       await this.db.write();
-      console.log(`[INDICES DATABASE] Added indices creation index: ${indexName} for ${filename}${timestamp ? ` with timestamp: ${timestamp}` : ''}`);
+      console.log(`[INDICES DATABASE] Added indices creation index: ${indexName} for ${filename}`);
     } finally {
       this.mutex.release();
     }
   }
 
-  // Get all indices
-  async getAllIndices(): Promise<IndexEntry[]> {
+  // Get all indices (flattened from all agents and tasks)
+  async getAllIndices(): Promise<(IndexEntry & { taskInfo: TaskInfo; agentInfo: AgentInfo })[]> {
     await this.ensureInitialized();
     await this.db.read();
-    return this.db.data!.indices;
+    
+    const allIndices: (IndexEntry & { taskInfo: TaskInfo; agentInfo: AgentInfo })[] = [];
+    
+    for (const agent of Object.values(this.db.data!.agents)) {
+      for (const task of Object.values(agent.tasks)) {
+        for (const index of task.indices) {
+          allIndices.push({
+            ...index,
+            taskInfo: task.taskInfo,
+            agentInfo: agent.agentInfo
+          });
+        }
+      }
+    }
+    
+    return allIndices;
   }
 
-  // Get indices by name
-  async getIndicesByName(indexName: string): Promise<IndexEntry[]> {
+  // Get indices by name (flattened from all agents and tasks)
+  async getIndicesByName(indexName: string): Promise<(IndexEntry & { taskInfo: TaskInfo; agentInfo: AgentInfo })[]> {
     await this.ensureInitialized();
     await this.db.read();
-    return this.db.data!.indices.filter(index => index.indexName === indexName);
+    
+    const matchingIndices: (IndexEntry & { taskInfo: TaskInfo; agentInfo: AgentInfo })[] = [];
+    
+    for (const agent of Object.values(this.db.data!.agents)) {
+      for (const task of Object.values(agent.tasks)) {
+        for (const index of task.indices) {
+          if (index.indexName === indexName) {
+            matchingIndices.push({
+              ...index,
+              taskInfo: task.taskInfo,
+              agentInfo: agent.agentInfo
+            });
+          }
+        }
+      }
+    }
+    
+    return matchingIndices;
   }
 
   // Get unique index names
   async getUniqueIndexNames(): Promise<string[]> {
     await this.ensureInitialized();
     await this.db.read();
-    const names = this.db.data!.indices.map(index => index.indexName);
-    return Array.from(new Set(names));
+    
+    const indexNames = new Set<string>();
+    
+    for (const agent of Object.values(this.db.data!.agents)) {
+      for (const task of Object.values(agent.tasks)) {
+        for (const index of task.indices) {
+          indexNames.add(index.indexName);
+        }
+      }
+    }
+    
+    return Array.from(indexNames);
   }
 
   // Get indices by source
-  async getIndicesBySource(source: 'pdf_processing' | 'indices_creation'): Promise<IndexEntry[]> {
+  async getIndicesBySource(source: 'pdf_processing' | 'indices_creation'): Promise<(IndexEntry & { taskInfo: TaskInfo; agentInfo: AgentInfo })[]> {
     await this.ensureInitialized();
     await this.db.read();
-    return this.db.data!.indices.filter(index => index.source === source);
+    
+    const matchingIndices: (IndexEntry & { taskInfo: TaskInfo; agentInfo: AgentInfo })[] = [];
+    
+    for (const agent of Object.values(this.db.data!.agents)) {
+      for (const task of Object.values(agent.tasks)) {
+        for (const index of task.indices) {
+          if (index.source === source) {
+            matchingIndices.push({
+              ...index,
+              taskInfo: task.taskInfo,
+              agentInfo: agent.agentInfo
+            });
+          }
+        }
+      }
+    }
+    
+    return matchingIndices;
   }
 
   // Get indices by article ID
-  async getIndicesByArticleId(articleId: string): Promise<IndexEntry[]> {
+  async getIndicesByArticleId(articleId: string): Promise<(IndexEntry & { taskInfo: TaskInfo; agentInfo: AgentInfo })[]> {
     await this.ensureInitialized();
     await this.db.read();
-    return this.db.data!.indices.filter(index => index.articleId === articleId);
+    
+    const matchingIndices: (IndexEntry & { taskInfo: TaskInfo; agentInfo: AgentInfo })[] = [];
+    
+    for (const agent of Object.values(this.db.data!.agents)) {
+      for (const task of Object.values(agent.tasks)) {
+        if (task.taskInfo.articleId === articleId) {
+          for (const index of task.indices) {
+            matchingIndices.push({
+              ...index,
+              taskInfo: task.taskInfo,
+              agentInfo: agent.agentInfo
+            });
+          }
+        }
+      }
+    }
+    
+    return matchingIndices;
   }
 
   // Get statistics
@@ -267,23 +529,24 @@ export class IndicesDatabaseService {
 
   // Get database info
   async getDatabaseInfo(): Promise<{
+    totalAgents: number;
+    totalTasks: number;
     totalIndices: number;
     uniqueIndexNames: number;
-    pdfProcessingIndices: number;
-    indicesCreationIndices: number;
     lastIndexDate: string;
-    lastBackup: string;
+    lastBackup: string | null;
     version: string;
   }> {
     await this.ensureInitialized();
     await this.db.read();
-    const uniqueNames = new Set(this.db.data!.indices.map(index => index.indexName));
+    
+    const uniqueIndexNames = await this.getUniqueIndexNames();
     
     return {
+      totalAgents: this.db.data!.statistics.totalAgents,
+      totalTasks: this.db.data!.statistics.totalTasks,
       totalIndices: this.db.data!.statistics.totalIndices,
-      uniqueIndexNames: uniqueNames.size,
-      pdfProcessingIndices: this.db.data!.statistics.pdfProcessingIndices,
-      indicesCreationIndices: this.db.data!.statistics.indicesCreationIndices,
+      uniqueIndexNames: uniqueIndexNames.length,
       lastIndexDate: this.db.data!.statistics.lastIndexDate,
       lastBackup: this.db.data!.settings.lastBackup,
       version: this.db.data!.settings.version
@@ -298,14 +561,18 @@ export class IndicesDatabaseService {
       await this.ensureInitialized();
       await this.db.read();
       
-      const initialCount = this.db.data!.indices.length;
-      this.db.data!.indices = this.db.data!.indices.filter(index => index.taskId !== taskId);
-      const deletedCount = initialCount - this.db.data!.indices.length;
+      let deletedCount = 0;
+      
+      for (const agent of Object.values(this.db.data!.agents)) {
+        if (agent.tasks[taskId]) {
+          deletedCount += agent.tasks[taskId].indices.length;
+          delete agent.tasks[taskId];
+          this.db.data!.statistics.totalTasks--;
+        }
+      }
       
       if (deletedCount > 0) {
-        // Update statistics
         this.db.data!.statistics.totalIndices -= deletedCount;
-        // Note: We can't easily update pdfProcessingIndices vs indicesCreationIndices without tracking which were deleted
         await this.db.write();
         console.log(`[INDICES DATABASE] Deleted ${deletedCount} indices for task ID: ${taskId}`);
       }
@@ -324,19 +591,23 @@ export class IndicesDatabaseService {
       await this.ensureInitialized();
       await this.db.read();
       
-      const initialCount = this.db.data!.indices.length;
-      // Filter out indices where taskId starts with the queue key pattern
-      this.db.data!.indices = this.db.data!.indices.filter(index => {
-        if (!index.taskId) return true;
-        // Check if taskId matches the queue key pattern (e.g., "indices:query" or "deep_research:query")
-        const queueKeyPattern = queueKey.replace(/:/g, '-');
-        return !index.taskId.includes(queueKeyPattern);
-      });
+      let deletedCount = 0;
       
-      const deletedCount = initialCount - this.db.data!.indices.length;
+      // Find matching agents by queue key pattern
+      for (const [agentKey, agent] of Object.entries(this.db.data!.agents)) {
+        if (agentKey.includes(queueKey) || agent.agentInfo.queueKey === queueKey) {
+          // Count all indices in this agent
+          for (const task of Object.values(agent.tasks)) {
+            deletedCount += task.indices.length;
+          }
+          // Delete the entire agent
+          delete this.db.data!.agents[agentKey];
+          this.db.data!.statistics.totalAgents--;
+          this.db.data!.statistics.totalTasks -= Object.keys(agent.tasks).length;
+        }
+      }
       
       if (deletedCount > 0) {
-        // Update statistics
         this.db.data!.statistics.totalIndices -= deletedCount;
         await this.db.write();
         console.log(`[INDICES DATABASE] Deleted ${deletedCount} indices for queue key: ${queueKey}`);
@@ -348,7 +619,7 @@ export class IndicesDatabaseService {
     }
   }
 
-  // Delete individual index by ID
+  // Delete index by ID
   async deleteIndexById(id: string): Promise<boolean> {
     await this.mutex.acquire();
     
@@ -356,28 +627,20 @@ export class IndicesDatabaseService {
       await this.ensureInitialized();
       await this.db.read();
       
-      const initialCount = this.db.data!.indices.length;
-      const indexToDelete = this.db.data!.indices.find(index => index.id === id);
-      
-      if (!indexToDelete) {
-        return false; // Index not found
+      for (const agent of Object.values(this.db.data!.agents)) {
+        for (const task of Object.values(agent.tasks)) {
+          const indexIndex = task.indices.findIndex(index => index.id === id);
+          if (indexIndex !== -1) {
+            task.indices.splice(indexIndex, 1);
+            this.db.data!.statistics.totalIndices--;
+            await this.db.write();
+            console.log(`[INDICES DATABASE] Deleted index with ID: ${id}`);
+            return true;
+          }
+        }
       }
       
-      // Remove the index
-      this.db.data!.indices = this.db.data!.indices.filter(index => index.id !== id);
-      
-      // Update statistics
-      this.db.data!.statistics.totalIndices--;
-      if (indexToDelete.source === 'pdf_processing') {
-        this.db.data!.statistics.pdfProcessingIndices--;
-      } else if (indexToDelete.source === 'indices_creation') {
-        this.db.data!.statistics.indicesCreationIndices--;
-      }
-      
-      await this.db.write();
-      console.log(`[INDICES DATABASE] Deleted index: ${id} (${indexToDelete.indexName})`);
-      
-      return true;
+      return false;
     } finally {
       this.mutex.release();
     }
@@ -388,22 +651,85 @@ export class IndicesDatabaseService {
     await this.mutex.acquire();
     
     try {
-      await this.ensureInitialized();
       this.db.data = {
-        indices: [],
+        agents: {},
         settings: {
-          lastBackup: new Date().toISOString(),
-          version: '1.0.0'
+          lastBackup: null,
+          version: '2.0.0'
         },
         statistics: {
+          totalAgents: 0,
+          totalTasks: 0,
           totalIndices: 0,
-          pdfProcessingIndices: 0,
-          indicesCreationIndices: 0,
           lastIndexDate: new Date().toISOString()
         }
       };
+      
       await this.db.write();
-      console.log('[INDICES DATABASE] Database reset');
+      console.log('[INDICES DATABASE] Database reset completed');
+    } finally {
+      this.mutex.release();
+    }
+  }
+
+  // New methods for the nested structure
+
+  // Get all agents
+  async getAllAgents(): Promise<AgentWithTasks[]> {
+    await this.ensureInitialized();
+    await this.db.read();
+    return Object.values(this.db.data!.agents);
+  }
+
+  // Get agent by key
+  async getAgentByKey(agentKey: string): Promise<AgentWithTasks | undefined> {
+    await this.ensureInitialized();
+    await this.db.read();
+    return this.db.data!.agents[agentKey];
+  }
+
+  // Get task by agent and task ID
+  async getTaskByIds(agentKey: string, taskId: string): Promise<TaskWithIndices | undefined> {
+    await this.ensureInitialized();
+    await this.db.read();
+    return this.db.data!.agents[agentKey]?.tasks[taskId];
+  }
+
+  // Update agent status
+  async updateAgentStatus(agentKey: string, status: string): Promise<boolean> {
+    await this.mutex.acquire();
+    
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      if (this.db.data!.agents[agentKey]) {
+        this.db.data!.agents[agentKey].agentInfo.status = status;
+        await this.db.write();
+        return true;
+      }
+      
+      return false;
+    } finally {
+      this.mutex.release();
+    }
+  }
+
+  // Update task status
+  async updateTaskStatus(agentKey: string, taskId: string, status: string): Promise<boolean> {
+    await this.mutex.acquire();
+    
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      if (this.db.data!.agents[agentKey]?.tasks[taskId]) {
+        this.db.data!.agents[agentKey].tasks[taskId].taskInfo.status = status;
+        await this.db.write();
+        return true;
+      }
+      
+      return false;
     } finally {
       this.mutex.release();
     }

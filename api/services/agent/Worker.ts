@@ -134,7 +134,7 @@ Output only the JSON object as described above. Do not wrap it in markdown code 
             output.score_value,
             output.article_id || taskPayload.article_id,
             taskPayload.filename || 'unknown',
-            output.evidence || [],
+            output.quotes || [],
             output.rational || '',
             taskPayload.timestamp,
             taskPayload.taskId
@@ -182,14 +182,14 @@ export class ResearchWorker extends Worker {
 You are given an article and some historical research context.
 
 1. Write a small paragraph to answer the question, referring to the article. Take into account the historical research context if relevant. Be concise and informative. Try to get as much incremental information as possible from the article compared to historical research context.
-2. Extract several pieces of evidence from the article that support your answer. Cite the original sentences.
+2. Extract several pieces of quotes from the article that support your answer. Cite the original sentences.
 3. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
 
 Example output:
 {
   "answer": "The FOMC minutes indicate continued concerns about elevated inflation levels, with participants noting that inflation declines have been slower than expected. However, there are signs of improvement in labor market balance and economic activity continues to expand modestly.",
   "article_id": "${article_id}",
-  "evidence": [
+  "quotes": [
     "Inflation remained elevated.",
     "Participants agreed that inflation was unacceptably high and noted that the data indicated that declines in inflation had been slower than they had expected.",
     "Participants generally noted that economic activity had continued to expand at a modest pace but there were some signs that supply and demand in the labor market were coming into better balance."
@@ -284,7 +284,7 @@ ARTICLE REQUIREMENTS:
 1. **Professional Structure**: Use a clear hierarchy with main sections and subsections
 2. **Executive Summary**: Start with a brief overview of key findings
 3. **Comprehensive Analysis**: Provide detailed analysis of the research question
-4. **Evidence-Based**: Support all claims with specific citations from the documents
+4. **quotes-Based**: Support all claims with specific citations from the documents
 5. **Chronological Context**: When relevant, discuss developments over time
 6. **Synthesis**: Connect findings across different documents to provide insights
 7. **Citations**: Use [^article_id] format for all references
@@ -334,7 +334,7 @@ Generate the complete markdown article following the structure and requirements 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You are an expert research analyst and writer specializing in comprehensive, evidence-based research articles.' },
+        { role: 'system', content: 'You are an expert research analyst and writer specializing in comprehensive, quotes-based research articles.' },
         { role: 'user', content: prompt }
       ],
       max_tokens: 3000,

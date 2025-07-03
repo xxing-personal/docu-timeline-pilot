@@ -14,14 +14,25 @@ interface IndexEntry {
   id: string;
   indexName: string;
   scoreValue: number;
-  articleId: string;
-  filename: string;
   source: 'pdf_processing' | 'indices_creation';
   quotes: string[];
   rational: string;
-  createdAt: string;
-  timestamp?: string;
-  taskId?: string;
+  taskInfo: {
+    id: string;
+    type: string;
+    filename: string;
+    articleId: string;
+    status: string;
+    createdAt: string;
+    timestamp?: string;
+  };
+  agentInfo: {
+    name: string;
+    type: string;
+    queueKey: string;
+    createdAt: string;
+    status: string;
+  };
 }
 
 const API_BASE_URL = getApiBaseUrl();
@@ -107,12 +118,12 @@ const AnalysisTab = () => {
     const filtered = indices.filter(index => index.indexName === indexName);
     // Sort by timestamp or createdAt
     filtered.sort((a, b) => {
-      const aTime = new Date(a.timestamp || a.createdAt).getTime();
-      const bTime = new Date(b.timestamp || b.createdAt).getTime();
+      const aTime = new Date(a.taskInfo.timestamp || a.taskInfo.createdAt).getTime();
+      const bTime = new Date(b.taskInfo.timestamp || b.taskInfo.createdAt).getTime();
       return aTime - bTime;
     });
     return {
-      labels: filtered.map(index => new Date(index.timestamp || index.createdAt).toLocaleDateString()),
+      labels: filtered.map(index => new Date(index.taskInfo.timestamp || index.taskInfo.createdAt).toLocaleDateString()),
       datasets: [
         {
           label: indexName.charAt(0).toUpperCase() + indexName.slice(1),
@@ -180,8 +191,8 @@ const AnalysisTab = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {indices.filter(index => index.indexName === name)
                   .sort((a, b) => {
-                    const aTime = new Date(a.timestamp || a.createdAt).getTime();
-                    const bTime = new Date(b.timestamp || b.createdAt).getTime();
+                    const aTime = new Date(a.taskInfo.timestamp || a.taskInfo.createdAt).getTime();
+                    const bTime = new Date(b.taskInfo.timestamp || b.taskInfo.createdAt).getTime();
                     return aTime - bTime;
                   })
                   .map(index => (
@@ -190,13 +201,16 @@ const AnalysisTab = () => {
                       <Badge variant="outline" className="capitalize">
                         {index.source.replace('_', ' ')}
                       </Badge>
-                      <span className="font-medium text-slate-900 truncate">{index.filename}</span>
+                      <span className="font-medium text-slate-900 truncate">{index.taskInfo.filename}</span>
                     </div>
                     <div className="text-xs text-slate-500">
-                      Date: {new Date(index.timestamp || index.createdAt).toLocaleString()}
+                      Date: {new Date(index.taskInfo.timestamp || index.taskInfo.createdAt).toLocaleString()}
                     </div>
                     <div className="text-sm">
                       <span className="font-medium">{name.replace(/_/g, ' ')}:</span> {(index.scoreValue * 100).toFixed(0)}%
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      Agent: {index.agentInfo.name} • Task: {index.taskInfo.type}
                     </div>
                   </Card>
                 ))}
