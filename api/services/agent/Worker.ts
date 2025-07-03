@@ -306,7 +306,7 @@ Output only the markdown article.
     
     try {
       // Create research-articles directory if it doesn't exist
-      const articlesDir = path.join(process.cwd(), 'api', 'research-articles');
+      const articlesDir = path.join(process.cwd(), 'research-articles');
       await fs.mkdir(articlesDir, { recursive: true });
       
       // Generate filename from question (sanitized)

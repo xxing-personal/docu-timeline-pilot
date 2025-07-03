@@ -6,6 +6,9 @@ import { Copy, Download, Eye, Search, FileText, RefreshCw, Clock, BookOpen, File
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { getApiBaseUrl } from "@/lib/utils";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface SummarizationTabProps {
   uploadedFiles: File[];
@@ -31,8 +34,6 @@ interface ArticleContent {
   rawContent: string;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
-
 const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [articles, setArticles] = useState<ResearchArticle[]>([]);
@@ -45,7 +46,7 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
   const fetchArticles = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/research-articles`);
+      const response = await fetch(`${getApiBaseUrl()}/api/research-articles`);
       if (!response.ok) {
         throw new Error('Failed to fetch research articles');
       }
@@ -68,7 +69,7 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
   const fetchArticleContent = async (filename: string) => {
     setLoadingArticle(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/research-articles/${filename}`);
+      const response = await fetch(`${getApiBaseUrl()}/api/research-articles/${filename}`);
       if (!response.ok) {
         throw new Error('Failed to fetch article content');
       }
@@ -130,28 +131,6 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
     article.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
     article.preview.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  // Render markdown content as simple formatted text (without external dependencies)
-  const renderMarkdown = (content: string) => {
-    const lines = content.split('\n');
-    return lines.map((line, index) => {
-      if (line.startsWith('# ')) {
-        return <h1 key={index} className="text-2xl font-bold mb-4 mt-6">{line.substring(2)}</h1>;
-      } else if (line.startsWith('## ')) {
-        return <h2 key={index} className="text-xl font-semibold mb-3 mt-5">{line.substring(3)}</h2>;
-      } else if (line.startsWith('### ')) {
-        return <h3 key={index} className="text-lg font-medium mb-2 mt-4">{line.substring(4)}</h3>;
-      } else if (line.startsWith('- ') || line.startsWith('* ')) {
-        return <li key={index} className="ml-4 mb-1">{line.substring(2)}</li>;
-      } else if (line.trim() === '') {
-        return <br key={index} />;
-      } else if (line.startsWith('**') && line.endsWith('**')) {
-        return <p key={index} className="font-bold mb-2">{line.slice(2, -2)}</p>;
-      } else {
-        return <p key={index} className="mb-2 leading-relaxed">{line}</p>;
-      }
-    });
-  };
 
   if (loading && articles.length === 0) {
     return (
@@ -310,8 +289,10 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
                   </div>
                 ) : (
                   <ScrollArea className="flex-1">
-                    <div className="prose prose-slate max-w-none">
-                      {renderMarkdown(selectedArticle.content)}
+                    <div className="max-w-none bg-white rounded-lg border border-gray-200 p-8 mx-auto">
+                      <article className="prose prose-lg prose-gray max-w-none">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedArticle.content}</ReactMarkdown>
+                      </article>
                     </div>
                   </ScrollArea>
                 )}
