@@ -321,22 +321,22 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
 
   // Helper to render task details
   const renderTaskDetails = (task: AgentTask) => {
-    // Try to find score, evidence, rational in result or payload
+    // Try to find score, quotes, rational in result or payload
     const result = task.result || {};
     const score = result.score_value ?? result.scoreValue ?? result.score ?? result.score_name ?? result.scoreName ?? result.summary ?? null;
-    const evidence = result.evidence || [];
+    const quotes = result.quotes || [];
     const rational = result.rational || result.rationale || null;
-    if (!score && (!evidence || evidence.length === 0) && !rational) return null;
+    if (!score && (!quotes || quotes.length === 0) && !rational) return null;
     return (
       <div className="mt-2 p-2 bg-slate-50 rounded text-xs text-slate-700">
         {score && (
           <div className="mb-1"><span className="font-semibold">Score:</span> {score}</div>
         )}
-        {evidence && evidence.length > 0 && (
+        {quotes && quotes.length > 0 && (
           <div className="mb-1">
-            <span className="font-semibold">Evidence:</span>
+            <span className="font-semibold">Quotes:</span>
             <ul className="list-disc ml-5 mt-1">
-              {evidence.map((ev: string, idx: number) => (
+              {quotes.map((ev: string, idx: number) => (
                 <li key={idx}>{ev}</li>
               ))}
             </ul>
