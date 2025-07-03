@@ -234,7 +234,7 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
   const getTaskTypeDisplay = (taskType: string) => {
     switch (taskType) {
       case 'comparison':
-        return 'Comparison Analysis';
+        return 'Analyze the Difference';
       case 'research':
         return 'Research Summary';
       case 'writing':
