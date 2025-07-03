@@ -84,6 +84,7 @@ export class AgentQueue {
           status: taskMetadata.status,
           metadata: taskMetadata.metadata,
           resultPath: taskMetadata.resultPath,
+          result: taskMetadata.result,
           error: taskMetadata.error
         });
       }
@@ -113,6 +114,7 @@ export class AgentQueue {
         status: taskMetadata.status,
         metadata: taskMetadata.metadata,
         resultPath: taskMetadata.resultPath,
+        result: taskMetadata.result,
         error: taskMetadata.error
       };
 
@@ -133,6 +135,7 @@ export class AgentQueue {
         status: updateData.status,
         metadata: updateData.metadata,
         resultPath: updateData.resultPath,
+        result: updateData.result,
         error: updateData.error
       };
 

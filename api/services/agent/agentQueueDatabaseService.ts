@@ -20,6 +20,7 @@ export interface TaskMetadata {
   metadata: Record<string, any>; // lightweight metadata only
   dataPath?: string; // path to separate data file for large payloads
   resultPath?: string;
+  result?: any;
   error?: string;
   createdAt: string;
   updatedAt: string;

@@ -127,23 +127,11 @@ router.get('/queue', async (_req, res) => {
           const agentTasks: AgentTask[] = await Promise.all(
             tasks.map(async (taskMeta) => {
               let payload = null;
-              let result = null;
               
               try {
                 payload = await queueDb.getTaskPayload(queueMetadata.id, taskMeta.id);
               } catch (error) {
                 console.warn(`[AGENT SERVICE] Failed to load payload for task ${taskMeta.id}:`, error);
-              }
-              
-              // Try to load result if resultPath exists
-              if (taskMeta.resultPath) {
-                try {
-                  const fs = require('fs/promises');
-                  const resultData = await fs.readFile(taskMeta.resultPath, 'utf-8');
-                  result = JSON.parse(resultData);
-                } catch (error) {
-                  console.warn(`[AGENT SERVICE] Failed to load result for task ${taskMeta.id}:`, error);
-                }
               }
               
               return {
@@ -153,7 +141,7 @@ router.get('/queue', async (_req, res) => {
                 status: taskMeta.status,
                 metadata: taskMeta.metadata,
                 resultPath: taskMeta.resultPath,
-                result,
+                result: taskMeta.result,
                 error: taskMeta.error
               };
             })
@@ -216,18 +204,6 @@ router.get('/result/:queueKey/:taskId', async (req, res) => {
     }
     
     const payload = await queueDb.getTaskPayload(queueKey, taskId);
-    let result = null;
-    
-    // Try to load result if resultPath exists
-    if (taskMeta.resultPath) {
-      try {
-        const fs = require('fs/promises');
-        const resultData = await fs.readFile(taskMeta.resultPath, 'utf-8');
-        result = JSON.parse(resultData);
-      } catch (error) {
-        console.warn(`[AGENT SERVICE] Failed to load result for task ${taskId}:`, error);
-      }
-    }
     
     const task: AgentTask = {
       id: taskMeta.id,
@@ -236,7 +212,7 @@ router.get('/result/:queueKey/:taskId', async (req, res) => {
       status: taskMeta.status,
       metadata: taskMeta.metadata,
       resultPath: taskMeta.resultPath,
-      result,
+      result: taskMeta.result,
       error: taskMeta.error
     };
     

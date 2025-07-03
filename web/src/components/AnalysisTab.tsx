@@ -6,6 +6,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import { Line } from 'react-chartjs-2';
 import { getApiBaseUrl } from "@/lib/utils";
 import { Trash } from 'lucide-react';
+import { Button } from "@/components/ui/button";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -16,7 +17,7 @@ interface IndexEntry {
   articleId: string;
   filename: string;
   source: 'pdf_processing' | 'indices_creation';
-  evidence: string[];
+  quotes: string[];
   rational: string;
   createdAt: string;
   timestamp?: string;
@@ -30,7 +31,7 @@ const AnalysisTab = () => {
   const [indexNames, setIndexNames] = useState<string[]>([]);
   const [activeIndex, setActiveIndex] = useState<string | null>(null);
   const hasInitialized = useRef(false); // Track if we've set initial tab
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingSeries, setDeletingSeries] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -67,21 +68,36 @@ const AnalysisTab = () => {
     }
   };
 
-  // Delete an index by id
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this index?')) return;
-    setDeletingId(id);
+  // Delete an entire series by index name
+  const handleDeleteSeries = async (indexName: string) => {
+    if (!window.confirm(`Are you sure you want to delete the entire "${indexName.replace(/_/g, ' ')}" series? This will delete all data points for this index.`)) return;
+    setDeletingSeries(indexName);
     try {
-      const response = await fetch(`${API_BASE_URL}/indices/${id}`, { method: 'DELETE' });
-      if (response.ok) {
+      // Get all indices with this indexName
+      const indicesToDelete = indices.filter(index => index.indexName === indexName);
+      
+      // Delete all indices with this indexName
+      const deletePromises = indicesToDelete.map(index => 
+        fetch(`${API_BASE_URL}/indices/${index.id}`, { method: 'DELETE' })
+      );
+      
+      const responses = await Promise.all(deletePromises);
+      const allSuccessful = responses.every(response => response.ok);
+      
+      if (allSuccessful) {
         await fetchIndices();
+        // If we deleted the active tab, switch to the first remaining tab
+        if (activeIndex === indexName) {
+          const remainingNames = indexNames.filter(name => name !== indexName);
+          setActiveIndex(remainingNames.length > 0 ? remainingNames[0] : null);
+        }
       } else {
-        alert('Failed to delete index.');
+        alert('Failed to delete some indices in the series.');
       }
     } catch (error) {
-      alert('Error deleting index.');
+      alert('Error deleting series.');
     } finally {
-      setDeletingId(null);
+      setDeletingSeries(null);
     }
   };
 
@@ -127,6 +143,19 @@ const AnalysisTab = () => {
           </TabsList>
           {indexNames.map(name => (
             <TabsContent key={name} value={name} className="space-y-6">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-lg font-medium capitalize">{name.replace(/_/g, ' ')} Series</h4>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDeleteSeries(name)}
+                  disabled={deletingSeries === name}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                >
+                  <Trash className="w-4 h-4 mr-2" />
+                  {deletingSeries === name ? 'Deleting...' : 'Delete Series'}
+                </Button>
+              </div>
               <div className="bg-white rounded-lg shadow p-4 max-h-[400px]">
                 <Line
                   data={getChartData(name)}
@@ -156,20 +185,12 @@ const AnalysisTab = () => {
                     return aTime - bTime;
                   })
                   .map(index => (
-                  <Card key={index.id} className="p-4 flex flex-col gap-2 relative group">
+                  <Card key={index.id} className="p-4 flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="capitalize">
                         {index.source.replace('_', ' ')}
                       </Badge>
                       <span className="font-medium text-slate-900 truncate">{index.filename}</span>
-                      <button
-                        className="ml-auto text-slate-400 hover:text-red-600 transition-colors p-1 rounded group-hover:bg-slate-100 disabled:opacity-50"
-                        title="Delete index"
-                        onClick={() => handleDelete(index.id)}
-                        disabled={deletingId === index.id}
-                      >
-                        <Trash className="w-4 h-4" />
-                      </button>
                     </div>
                     <div className="text-xs text-slate-500">
                       Date: {new Date(index.timestamp || index.createdAt).toLocaleString()}

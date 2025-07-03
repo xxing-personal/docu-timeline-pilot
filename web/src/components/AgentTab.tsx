@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Clock, CheckCircle2, AlertCircle, Eye, Loader2, RefreshCw, Sparkles, Play, Trash2, Plus } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, AlertCircle, Eye, Loader2, RefreshCw, Sparkles, Play, Trash2, Plus, ChevronDown, ChevronRight } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -55,6 +55,7 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
   const [agentQuery, setAgentQuery] = useState('');
   const [agentLoading, setAgentLoading] = useState(false);
   const [selectedQueue, setSelectedQueue] = useState<AgentQueue | null>(null);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Record<string, boolean>>({});
 
   // Fetch agent queues on component mount and auto-refresh every 3 seconds
   useEffect(() => {
@@ -313,6 +314,41 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
     );
   };
 
+  // Helper to toggle expanded state
+  const toggleTaskExpand = (taskId: string) => {
+    setExpandedTaskIds(prev => ({ ...prev, [taskId]: !prev[taskId] }));
+  };
+
+  // Helper to render task details
+  const renderTaskDetails = (task: AgentTask) => {
+    // Try to find score, evidence, rational in result or payload
+    const result = task.result || {};
+    const score = result.score_value ?? result.scoreValue ?? result.score ?? result.score_name ?? result.scoreName ?? result.summary ?? null;
+    const evidence = result.evidence || [];
+    const rational = result.rational || result.rationale || null;
+    if (!score && (!evidence || evidence.length === 0) && !rational) return null;
+    return (
+      <div className="mt-2 p-2 bg-slate-50 rounded text-xs text-slate-700">
+        {score && (
+          <div className="mb-1"><span className="font-semibold">Score:</span> {score}</div>
+        )}
+        {evidence && evidence.length > 0 && (
+          <div className="mb-1">
+            <span className="font-semibold">Evidence:</span>
+            <ul className="list-disc ml-5 mt-1">
+              {evidence.map((ev: string, idx: number) => (
+                <li key={idx}>{ev}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {rational && (
+          <div><span className="font-semibold">Rational:</span> {rational}</div>
+        )}
+      </div>
+    );
+  };
+
   // Show empty state when there are no agent queues
   if (agentQueues.length === 0 && !loading) {
     return (
@@ -425,42 +461,55 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
 
                 {/* Task List */}
                 <div className="space-y-2">
-                  {queue.tasks.map((task) => (
-                    <div key={task.id} className="flex items-center justify-between p-2 bg-slate-50 rounded">
-                      <div className="flex items-center space-x-2">
-                        {getStatusIcon(task.status)}
-                        <span className="text-sm font-medium">
-                          {getTaskTypeDisplay(task.type)}
-                        </span>
-                        {task.payload?.filename && (
-                          <span className="text-xs text-slate-500">
-                            ({task.payload.filename})
-                          </span>
-                        )}
-                        {task.metadata?.filename && (
-                          <span className="text-xs text-slate-500">
-                            ({task.metadata.filename})
-                          </span>
-                        )}
+                  {queue.tasks.map((task) => {
+                    const expanded = !!expandedTaskIds[task.id];
+                    return (
+                      <div key={task.id} className="flex flex-col bg-slate-50 rounded">
+                        <div className="flex items-center justify-between p-2">
+                          <div className="flex items-center space-x-2">
+                            <button
+                              className="focus:outline-none"
+                              onClick={() => toggleTaskExpand(task.id)}
+                              aria-label={expanded ? 'Collapse details' : 'Expand details'}
+                            >
+                              {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            </button>
+                            {getStatusIcon(task.status)}
+                            <span className="text-sm font-medium">
+                              {getTaskTypeDisplay(task.type)}
+                            </span>
+                            {task.payload?.filename && (
+                              <span className="text-xs text-slate-500">
+                                ({task.payload.filename})
+                              </span>
+                            )}
+                            {task.metadata?.filename && (
+                              <span className="text-xs text-slate-500">
+                                ({task.metadata.filename})
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={getStatusColor(task.status)}>
+                              <span className="capitalize">{task.status}</span>
+                            </Badge>
+                            {queue.pendingTasks > 0 && queueStatus === 'active' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => checkAgentFinish(queue.queueKey)}
+                                className="h-6 px-2 text-xs"
+                              >
+                                <RefreshCw className="w-3 h-3 mr-1" />
+                                Check
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        {expanded && renderTaskDetails(task)}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={getStatusColor(task.status)}>
-                          <span className="capitalize">{task.status}</span>
-                        </Badge>
-                        {queue.pendingTasks > 0 && queueStatus === 'active' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => checkAgentFinish(queue.queueKey)}
-                            className="h-6 px-2 text-xs"
-                          >
-                            <RefreshCw className="w-3 h-3 mr-1" />
-                            Check
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Queue Actions */}
@@ -561,31 +610,44 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
               <div>
                 <Label className="text-sm font-medium">Tasks ({selectedQueue.taskCount})</Label>
                 <div className="space-y-2 mt-2">
-                  {selectedQueue.tasks.map((task) => (
-                    <div key={task.id} className="p-3 border border-slate-200 rounded">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium">{getTaskTypeDisplay(task.type)}</span>
-                        <Badge variant="outline" className={getStatusColor(task.status)}>
-                          {getStatusIcon(task.status)}
-                          <span className="ml-1 capitalize">{task.status}</span>
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-slate-600">ID: {task.id}</p>
-                      {(task.payload?.filename || task.metadata?.filename) && (
-                        <p className="text-sm text-slate-600">
-                          File: {task.payload?.filename || task.metadata?.filename}
-                        </p>
-                      )}
-                      {task.error && (
-                        <p className="text-sm text-red-600 mt-1">Error: {task.error}</p>
-                      )}
-                      {task.result && (
-                        <div className="mt-2 p-2 bg-green-50 rounded">
-                          <p className="text-sm text-green-800">Task completed successfully</p>
+                  {selectedQueue.tasks.map((task) => {
+                    const expanded = !!expandedTaskIds[task.id];
+                    return (
+                      <div key={task.id} className="p-3 border border-slate-200 rounded mb-2">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center space-x-2">
+                            <button
+                              className="focus:outline-none"
+                              onClick={() => toggleTaskExpand(task.id)}
+                              aria-label={expanded ? 'Collapse details' : 'Expand details'}
+                            >
+                              {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            </button>
+                            <span className="font-medium">{getTaskTypeDisplay(task.type)}</span>
+                          </div>
+                          <Badge variant="outline" className={getStatusColor(task.status)}>
+                            {getStatusIcon(task.status)}
+                            <span className="ml-1 capitalize">{task.status}</span>
+                          </Badge>
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        <p className="text-sm text-slate-600">ID: {task.id}</p>
+                        {(task.payload?.filename || task.metadata?.filename) && (
+                          <p className="text-sm text-slate-600">
+                            File: {task.payload?.filename || task.metadata?.filename}
+                          </p>
+                        )}
+                        {task.error && (
+                          <p className="text-sm text-red-600 mt-1">Error: {task.error}</p>
+                        )}
+                        {task.result && (
+                          <div className="mt-2 p-2 bg-green-50 rounded">
+                            <p className="text-sm text-green-800">Task completed successfully</p>
+                          </div>
+                        )}
+                        {expanded && renderTaskDetails(task)}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>

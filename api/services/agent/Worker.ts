@@ -37,21 +37,9 @@ export abstract class Worker {
     const result = await this.coreProcess(taskPayload, context);
     // Add result to memory with better formatting
     const resultString = typeof result === 'string' ? result : JSON.stringify(result);
-    const formattedResult = `\n--- TASK RESULT ---\n${resultString}\n--- END RESULT ---\n`;
-    console.log(`[WORKER] Adding to memory for task ${taskId}:`);
-    console.log(`[WORKER] Result length: ${formattedResult.length} characters`);
-    console.log(`[WORKER] Result content:`, formattedResult);
-    console.log(`[WORKER] --- End Result ---`);
+    const formattedResult = `\n--- TASK RESULT ---\n${resultString}\n--- END TASK RESULT ---\n`;
     await this.memory.add(formattedResult);
-    // Save snapshot to DB
-    await this.memoryDb.addSnapshot({
-      id: this.memory['id'],
-      context: this.memory.getContext(),
-      maxLength: (this.memory as any).maxLength,
-      shrinkMode: (this.memory as any).shrinkMode,
-      taskId
-    } as any);
-    return { result };
+    return result;
   }
 }
 
@@ -93,7 +81,7 @@ export class ComparisonWorker extends Worker {
 You are given an article.
 
 1. Please provide a score based on the question and the historical scores. If there is historical data, do not change the score name. If there is no historical data, create a new score name based on the question and article.
-2. Extract several pieces of evidence from the article that support your score. Cite the original sentences.
+2. Extract several pieces of quoting from the article that support your score. Cite the original sentences.
 3. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
 
 Example output:
@@ -101,7 +89,7 @@ Example output:
   "score_name": "Inflation Sentiment Index",
   "score_value": 0.3,
   "article_id": "${article_id}",
-  "evidence": [
+  "quotes": [
     "Inflation remained elevated.",
     "Participants agreed that inflation was unacceptably high and noted that the data indicated that declines in inflation had been slower than they had expected.",
     "Participants generally noted that economic activity had continued to expand at a modest pace but there were some signs that supply and demand in the labor market were coming into better balance."
