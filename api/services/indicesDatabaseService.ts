@@ -348,6 +348,41 @@ export class IndicesDatabaseService {
     }
   }
 
+  // Delete individual index by ID
+  async deleteIndexById(id: string): Promise<boolean> {
+    await this.mutex.acquire();
+    
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      const initialCount = this.db.data!.indices.length;
+      const indexToDelete = this.db.data!.indices.find(index => index.id === id);
+      
+      if (!indexToDelete) {
+        return false; // Index not found
+      }
+      
+      // Remove the index
+      this.db.data!.indices = this.db.data!.indices.filter(index => index.id !== id);
+      
+      // Update statistics
+      this.db.data!.statistics.totalIndices--;
+      if (indexToDelete.source === 'pdf_processing') {
+        this.db.data!.statistics.pdfProcessingIndices--;
+      } else if (indexToDelete.source === 'indices_creation') {
+        this.db.data!.statistics.indicesCreationIndices--;
+      }
+      
+      await this.db.write();
+      console.log(`[INDICES DATABASE] Deleted index: ${id} (${indexToDelete.indexName})`);
+      
+      return true;
+    } finally {
+      this.mutex.release();
+    }
+  }
+
   // Reset database
   async resetDatabase(): Promise<void> {
     await this.mutex.acquire();

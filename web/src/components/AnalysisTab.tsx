@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { getApiBaseUrl } from "@/lib/utils";
+import { Trash } from 'lucide-react';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -29,6 +30,7 @@ const AnalysisTab = () => {
   const [indexNames, setIndexNames] = useState<string[]>([]);
   const [activeIndex, setActiveIndex] = useState<string | null>(null);
   const hasInitialized = useRef(false); // Track if we've set initial tab
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -62,6 +64,24 @@ const AnalysisTab = () => {
       }
     } catch (error) {
       console.error('Error fetching indices:', error);
+    }
+  };
+
+  // Delete an index by id
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this index?')) return;
+    setDeletingId(id);
+    try {
+      const response = await fetch(`${API_BASE_URL}/indices/${id}`, { method: 'DELETE' });
+      if (response.ok) {
+        await fetchIndices();
+      } else {
+        alert('Failed to delete index.');
+      }
+    } catch (error) {
+      alert('Error deleting index.');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -136,12 +156,20 @@ const AnalysisTab = () => {
                     return aTime - bTime;
                   })
                   .map(index => (
-                  <Card key={index.id} className="p-4 flex flex-col gap-2">
+                  <Card key={index.id} className="p-4 flex flex-col gap-2 relative group">
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="capitalize">
                         {index.source.replace('_', ' ')}
                       </Badge>
                       <span className="font-medium text-slate-900 truncate">{index.filename}</span>
+                      <button
+                        className="ml-auto text-slate-400 hover:text-red-600 transition-colors p-1 rounded group-hover:bg-slate-100 disabled:opacity-50"
+                        title="Delete index"
+                        onClick={() => handleDelete(index.id)}
+                        disabled={deletingId === index.id}
+                      >
+                        <Trash className="w-4 h-4" />
+                      </button>
                     </div>
                     <div className="text-xs text-slate-500">
                       Date: {new Date(index.timestamp || index.createdAt).toLocaleString()}

@@ -262,16 +262,75 @@ export class WritingWorker extends Worker {
     // Optionally, pass in a mapping of article ids to article titles for citation
     const articleIdMap = taskPayload.articleIdMap || {};
     const timestampMap = taskPayload.timestampMap || {};
-    const prompt = `
-You are a writing assistant. Given the following historical research context, generate a long, detailed markdown article that answers the question. The article should:
-- Be in markdown format
-- Reference and cite specific articles by their article id (use [^article_id] for citation)
-- Include a references section at the end listing all cited article ids, their titles, and timestamps (if available)
-- Consider the chronological order when discussing developments or trends
+    
+    // First, generate a proper title for the article
+    const titlePrompt = `
+Based on this research question and intent, generate a clear, professional title for a research article:
 
-Question:
-${question}
-${intent ? `Intent: ${intent}` : ''}
+Question: ${question}
+Intent: ${intent}
+
+Generate a concise, descriptive title (max 60 characters) that would be appropriate for a professional research article. 
+Return only the title, no quotes or additional text.
+`;
+
+    const titleCompletion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant for generating professional research article titles.' },
+        { role: 'user', content: titlePrompt }
+      ],
+      max_tokens: 100,
+      temperature: 0.3,
+    });
+
+    const articleTitle = titleCompletion.choices[0]?.message?.content?.trim() || question;
+    
+    const prompt = `
+You are an expert research analyst writing a comprehensive research article. Based on the provided research context from multiple documents, create a professional, well-structured markdown article.
+
+Research Question: ${question}
+${intent ? `Research Intent: ${intent}` : ''}
+
+ARTICLE REQUIREMENTS:
+1. **Professional Structure**: Use a clear hierarchy with main sections and subsections
+2. **Executive Summary**: Start with a brief overview of key findings
+3. **Comprehensive Analysis**: Provide detailed analysis of the research question
+4. **Evidence-Based**: Support all claims with specific citations from the documents
+5. **Chronological Context**: When relevant, discuss developments over time
+6. **Synthesis**: Connect findings across different documents to provide insights
+7. **Citations**: Use [^article_id] format for all references
+8. **References Section**: Include complete reference list with titles and timestamps
+
+WRITING STYLE:
+- Professional and authoritative tone
+- Clear, accessible language while maintaining analytical depth
+- Logical flow between sections
+- Specific data points and quotes where relevant
+- Balanced perspective acknowledging different viewpoints when present
+
+STRUCTURE TEMPLATE:
+# [Article Title]
+
+## Executive Summary
+[2-3 paragraph overview of key findings]
+
+## Introduction
+[Context and background]
+
+## [Main Analysis Sections]
+[Organize by themes, chronology, or key aspects of the research question]
+
+## Key Findings
+[Summarize main discoveries and insights]
+
+## Conclusion
+[Synthesis and implications]
+
+## References
+[Complete citation list]
+
+---
 
 Historical Research Context:
 ${historicalResearch}
@@ -282,15 +341,15 @@ ${JSON.stringify(articleIdMap, null, 2)}
 Timestamp Map (for chronological context):
 ${JSON.stringify(timestampMap, null, 2)}
 
-Output only the markdown article.
+Generate the complete markdown article following the structure and requirements above.
 `;
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You are a helpful assistant for research writing and markdown generation.' },
+        { role: 'system', content: 'You are an expert research analyst and writer specializing in comprehensive, evidence-based research articles.' },
         { role: 'user', content: prompt }
       ],
-      max_tokens: 2048,
+      max_tokens: 3000,
       temperature: 0.7,
     });
     let article = '';
@@ -309,24 +368,27 @@ Output only the markdown article.
       const articlesDir = path.join(process.cwd(), 'research-articles');
       await fs.mkdir(articlesDir, { recursive: true });
       
-      // Generate filename from question (sanitized)
-      const sanitizedQuestion = question
-        .replace(/[^a-z0-9\s]/gi, '') // Remove special characters
-        .replace(/\s+/g, '_') // Replace spaces with underscores
+      // Generate a clean, readable filename from the article title
+      const sanitizedTitle = articleTitle
+        .replace(/[^a-z0-9\s-]/gi, '') // Remove special characters except hyphens
+        .replace(/\s+/g, '-') // Replace spaces with hyphens
         .toLowerCase()
-        .substring(0, 50); // Limit length
+        .substring(0, 60); // Reasonable length limit
         
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `${timestamp}_${sanitizedQuestion}.md`;
+      // Use a simpler date format for the filename
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD format
+      const filename = `${dateStr}_${sanitizedTitle}.md`;
       const filepath = path.join(articlesDir, filename);
       
       // Create article with metadata header
       const articleWithMeta = `---
-title: "${question}"
+title: "${articleTitle}"
+original_query: "${question}"
 intent: "${intent}"
 generated: ${new Date().toISOString()}
 documents_analyzed: ${Object.keys(articleIdMap).length}
-query: "${question}"
+category: "deep_research"
 ---
 
 ${article}`;
@@ -336,12 +398,13 @@ ${article}`;
       
       return { 
         article, 
+        articleTitle,
         filepath: path.relative(process.cwd(), filepath),
         filename 
       };
     } catch (saveError) {
       console.error('[WRITING WORKER] Failed to save article file:', saveError);
-      return { article };
+      return { article, articleTitle };
     }
   }
 } 

@@ -245,41 +245,31 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
               </div>
             ) : (
               <div className="h-full flex flex-col">
-                {/* Article Header */}
-                <div className="mb-6 pb-4 border-b border-slate-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <h1 className="text-2xl font-bold text-slate-900">{selectedArticle.metadata.title}</h1>
-                    <div className="flex space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => copyToClipboard(selectedArticle.content, selectedArticle.metadata.title)}
-                      >
-                        <Copy className="w-3 h-3 mr-1" />
-                        Copy
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => exportArticle(selectedArticle.rawContent, selectedArticle.metadata.title)}
-                      >
-                        <Download className="w-3 h-3 mr-1" />
-                        Export
-                      </Button>
-                    </div>
-                  </div>
-                  
+                {/* Minimal Article Header */}
+                <div className="mb-4 pb-3 border-b border-slate-200 flex items-center justify-between">
                   <div className="flex items-center space-x-4 text-sm text-slate-500">
-                    <span>Generated: {new Date(selectedArticle.metadata.generated).toLocaleString()}</span>
-                    <span>Documents: {selectedArticle.metadata.documents_analyzed}</span>
-                    <span>File: {selectedArticle.filename}</span>
+                    <span>{new Date(selectedArticle.metadata.generated).toLocaleDateString()}</span>
+                    <span>{selectedArticle.metadata.documents_analyzed} documents</span>
                   </div>
                   
-                  {selectedArticle.metadata.intent && (
-                    <p className="text-sm text-slate-600 mt-2">
-                      <strong>Intent:</strong> {selectedArticle.metadata.intent}
-                    </p>
-                  )}
+                  <div className="flex space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard(selectedArticle.content, selectedArticle.metadata.title)}
+                    >
+                      <Copy className="w-3 h-3 mr-1" />
+                      Copy
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => exportArticle(selectedArticle.rawContent, selectedArticle.metadata.title)}
+                    >
+                      <Download className="w-3 h-3 mr-1" />
+                      Export
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Article Content */}
@@ -289,8 +279,8 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
                   </div>
                 ) : (
                   <ScrollArea className="flex-1">
-                    <div className="max-w-none bg-white rounded-lg border border-gray-200 p-8 mx-auto">
-                      <article className="prose prose-lg prose-gray max-w-none">
+                    <div className="max-w-none">
+                      <article className="prose prose-lg prose-gray max-w-none prose-headings:text-gray-900 prose-h1:text-3xl prose-h1:font-bold prose-h1:mb-6 prose-h1:mt-0 prose-h1:pb-3 prose-h1:border-b prose-h1:border-gray-200">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedArticle.content}</ReactMarkdown>
                       </article>
                     </div>

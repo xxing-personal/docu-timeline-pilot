@@ -107,7 +107,7 @@ Output as JSON (do not wrap in markdown code blocks):
             intent: this.intent,
             filename: pdf.filename,
             extractedTextPath: pdf.result!.extractedTextPath,
-            timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.sortingTimestamp
+            timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp
           },
           status: 'pending',
         };
@@ -121,7 +121,7 @@ Output as JSON (do not wrap in markdown code blocks):
 
     // Add a final WritingWorker task with timestamp information
     const articleIdMap = Object.fromEntries(pdfTasks.map(pdf => [pdf.id, pdf.filename]));
-    const timestampMap = Object.fromEntries(pdfTasks.map(pdf => [pdf.id, pdf.result?.metadata?.inferredTimestamp || pdf.sortingTimestamp]));
+    const timestampMap = Object.fromEntries(pdfTasks.map(pdf => [pdf.id, pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp]));
     const writingTask: AgentTask = {
       id: `writing-${Date.now()}`,
       type: 'writing',

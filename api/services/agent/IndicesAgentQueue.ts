@@ -107,7 +107,7 @@ Output as JSON (do not wrap in markdown code blocks):
             intent: this.intent,
             filename: pdf.filename,
             extractedTextPath: pdf.result!.extractedTextPath,
-            timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.sortingTimestamp
+            timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp
           },
           status: 'pending',
         };

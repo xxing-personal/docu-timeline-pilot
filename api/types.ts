@@ -11,7 +11,7 @@ export interface PDFTask {
   error?: string;
   result?: PDFProcessingResult;
   displayOrder?: number;
-  sortingTimestamp?: string; // Used for sorting in timeline
+  TimeStamp?: string; // Used for sorting in timeline
 }
 
 export interface PDFProcessingResult {

@@ -55,71 +55,106 @@ const upload = multer({
 });
 
 // Enhanced upload endpoint with queue integration
-app.post('/upload', upload.array('pdf', 10), async (req, res) => {
-  if (!req.files || req.files.length === 0) {
-    res.status(400).json({ error: 'No files uploaded or files are not PDFs.' });
-    return;
-  }
-
-  try {
-    const files = req.files as Express.Multer.File[];
-    const results = [];
-    
-    console.log(`[UPLOAD] Starting upload of ${files.length} files`);
-    
-    // Sort files by upload timestamp (creation time)
-    const sortedFiles = files.sort((a, b) => {
-      const statsA = fs.statSync(a.path);
-      const statsB = fs.statSync(b.path);
-      return statsA.birthtime.getTime() - statsB.birthtime.getTime();
-    });
-    
-    console.log(`[UPLOAD] Processing ${sortedFiles.length} files in upload timestamp order`);
-    
-    // Add each file to queue in sorted order
-    for (const file of sortedFiles) {
-      console.log(`[UPLOAD] Adding file to queue: ${file.filename} (${file.path})`);
-      try {
-        const taskId = await queueService.addTask(file.filename, file.path);
-        console.log(`[UPLOAD] Successfully created task ${taskId} for ${file.filename}`);
-        results.push({
-          taskId,
-          filename: file.filename,
-          status: 'pending'
+app.post('/upload', (req, res) => {
+  // Create the multer upload middleware with better error handling
+  const uploadMiddleware = upload.array('pdf', 10);
+  
+  uploadMiddleware(req, res, async (err) => {
+    // Handle multer-specific errors
+    if (err) {
+      console.error('[UPLOAD] Multer error:', err);
+      
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({ 
+          error: 'Unexpected file field. Please ensure you are uploading PDF files only.',
+          details: `Unexpected field: ${err.field}`,
+          code: err.code
         });
-      } catch (taskError) {
-        console.error(`[UPLOAD] Failed to create task for ${file.filename}:`, taskError);
-        throw taskError; // This will trigger the cleanup
+      } else if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ 
+          error: 'File too large. Maximum size is 10MB per file.',
+          code: err.code
+        });
+      } else if (err.code === 'LIMIT_FILE_COUNT') {
+        return res.status(400).json({ 
+          error: 'Too many files. Maximum 10 files allowed per upload.',
+          code: err.code
+        });
+      } else {
+        return res.status(400).json({ 
+          error: 'File upload error.',
+          details: err.message,
+          code: err.code || 'UNKNOWN_ERROR'
+        });
       }
     }
-    
-    const queueStats = await queueService.getQueueStats();
-    console.log(`[UPLOAD] Upload completed successfully. Created ${results.length} tasks. Queue length: ${queueStats.queue.length}`);
-    
-    res.json({
-      message: `${files.length} PDF(s) uploaded successfully and queued for processing in upload timestamp order!`,
-      files: results,
-      queueLength: queueStats.queue.length
-    });
-  } catch (error) {
-    console.error('[UPLOAD] Upload error:', error);
-    
-    // Clean up uploaded files if task creation failed
-    if (req.files) {
+
+    // Proceed with normal upload processing
+    if (!req.files || req.files.length === 0) {
+      res.status(400).json({ error: 'No files uploaded or files are not PDFs.' });
+      return;
+    }
+
+    try {
       const files = req.files as Express.Multer.File[];
-      console.log(`[UPLOAD] Cleaning up ${files.length} uploaded files due to error`);
-      files.forEach(file => {
-        if (fs.existsSync(file.path)) {
-          fs.unlinkSync(file.path);
-          console.log(`[UPLOAD] Deleted file: ${file.path}`);
+      const results = [];
+      
+      console.log(`[UPLOAD] Starting upload of ${files.length} files`);
+      
+      // Sort files by upload timestamp (creation time)
+      const sortedFiles = files.sort((a, b) => {
+        const statsA = fs.statSync(a.path);
+        const statsB = fs.statSync(b.path);
+        return statsA.birthtime.getTime() - statsB.birthtime.getTime();
+      });
+      
+      console.log(`[UPLOAD] Processing ${sortedFiles.length} files in upload timestamp order`);
+      
+      // Add each file to queue in sorted order
+      for (const file of sortedFiles) {
+        console.log(`[UPLOAD] Adding file to queue: ${file.filename} (${file.path})`);
+        try {
+          const taskId = await queueService.addTask(file.filename, file.path);
+          console.log(`[UPLOAD] Successfully created task ${taskId} for ${file.filename}`);
+          results.push({
+            taskId,
+            filename: file.filename,
+            status: 'pending'
+          });
+        } catch (taskError) {
+          console.error(`[UPLOAD] Failed to create task for ${file.filename}:`, taskError);
+          throw taskError; // This will trigger the cleanup
         }
+      }
+      
+      const queueStats = await queueService.getQueueStats();
+      console.log(`[UPLOAD] Upload completed successfully. Created ${results.length} tasks. Queue length: ${queueStats.queue.length}`);
+      
+      res.json({
+        message: `${files.length} PDF(s) uploaded successfully and queued for processing in upload timestamp order!`,
+        files: results,
+        queueLength: queueStats.queue.length
+      });
+    } catch (error) {
+      console.error('[UPLOAD] Upload error:', error);
+      
+      // Clean up uploaded files if task creation failed
+      if (req.files) {
+        const files = req.files as Express.Multer.File[];
+        console.log(`[UPLOAD] Cleaning up ${files.length} uploaded files due to error`);
+        files.forEach(file => {
+          if (fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+            console.log(`[UPLOAD] Deleted file: ${file.path}`);
+          }
+        });
+      }
+      
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : 'Failed to process upload' 
       });
     }
-    
-    res.status(500).json({ 
-      error: error instanceof Error ? error.message : 'Failed to process upload' 
-    });
-  }
+  });
 });
 
 // Get processing status for a specific task
@@ -166,15 +201,15 @@ app.get('/status', async (req, res) => {
       error: task.error,
       result: task.result,
       hasResult: !!task.result,
-      sortingTimestamp: task.sortingTimestamp
+      TimeStamp: task.TimeStamp
     }));
     
-    // Sort by sortingTimestamp (ascending)
+    // Sort by TimeStamp (ascending)
     allTasks = allTasks.sort((a, b) => {
-      if (!a.sortingTimestamp && !b.sortingTimestamp) return 0;
-      if (!a.sortingTimestamp) return 1;
-      if (!b.sortingTimestamp) return -1;
-      return new Date(a.sortingTimestamp).getTime() - new Date(b.sortingTimestamp).getTime();
+      if (!a.TimeStamp && !b.TimeStamp) return 0;
+      if (!a.TimeStamp) return 1;
+      if (!b.TimeStamp) return -1;
+      return new Date(a.TimeStamp).getTime() - new Date(b.TimeStamp).getTime();
     });
     
     const queueStats = await queueService.getQueueStats();
@@ -835,6 +870,23 @@ app.get('/indices/info', async (req, res) => {
   }
 });
 
+// DELETE individual index by ID
+app.delete('/indices/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await indicesDatabaseService.deleteIndexById(id);
+    
+    if (deleted) {
+      res.json({ message: 'Index deleted successfully', id });
+    } else {
+      res.status(404).json({ error: 'Index not found' });
+    }
+  } catch (error) {
+    console.error('Delete index error:', error);
+    res.status(500).json({ error: 'Failed to delete index' });
+  }
+});
+
 // Agent endpoints
 app.use('/agent', agentService);
 
@@ -883,12 +935,17 @@ app.get('/api/research-articles', async (req, res) => {
                 return acc;
               }, {});
               
-              // Remove frontmatter from content
-              articleContent = content.replace(/^---\n[\s\S]*?\n---\n/, '');
-            } catch (parseError) {
-              console.warn(`Failed to parse frontmatter for ${filename}:`, parseError);
-            }
+                        // Remove frontmatter from content
+          articleContent = content.replace(/^---\n[\s\S]*?\n---\n/, '');
+          
+          // Strip markdown code block wrapper if it exists
+          if (articleContent.startsWith('```markdown\n') && articleContent.endsWith('\n```')) {
+            articleContent = articleContent.slice(12, -4); // Remove ```markdown\n from start and \n``` from end
           }
+        } catch (parseError) {
+          console.warn(`Failed to parse frontmatter for ${filename}:`, parseError);
+        }
+      }
           
           return {
             filename,
@@ -958,6 +1015,11 @@ app.get('/api/research-articles/:filename', async (req, res) => {
           
           // Remove frontmatter from content
           articleContent = content.replace(/^---\n[\s\S]*?\n---\n/, '');
+          
+          // Strip markdown code block wrapper if it exists
+          if (articleContent.startsWith('```markdown\n') && articleContent.endsWith('\n```')) {
+            articleContent = articleContent.slice(12, -4); // Remove ```markdown\n from start and \n``` from end
+          }
         } catch (parseError) {
           console.warn(`Failed to parse frontmatter for ${filename}:`, parseError);
         }

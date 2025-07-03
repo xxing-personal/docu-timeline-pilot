@@ -96,7 +96,7 @@ export class PDFQueueService {
         status: 'pending',
         createdAt: now,
         displayOrder: this.taskOrder.length,
-        sortingTimestamp: now.toISOString()
+        TimeStamp: now.toISOString()
       };
       
       console.log(`[QUEUE] Created task object: ${taskId}`);
@@ -279,10 +279,10 @@ export class PDFQueueService {
         })
         .map(task => task.id);
       
-      // Update sortingTimestamp for each task
+      // Update TimeStamp for each task
       for (const task of tasksWithTimestamps) {
         await this.databaseService.updateTask(task.id, {
-          sortingTimestamp: task.result?.metadata?.inferredTimestamp || task.sortingTimestamp
+          TimeStamp: task.result?.metadata?.inferredTimestamp || task.TimeStamp
         });
       }
       
@@ -386,10 +386,10 @@ export class PDFQueueService {
         })
         .map(task => task.id);
       
-      // Update sortingTimestamp for each task
+      // Update TimeStamp for each task
       for (const task of tasksWithTimestamps) {
         await this.databaseService.updateTask(task.id, {
-          sortingTimestamp: task.result?.metadata?.inferredTimestamp || task.sortingTimestamp
+          TimeStamp: task.result?.metadata?.inferredTimestamp || task.TimeStamp
         });
       }
       
