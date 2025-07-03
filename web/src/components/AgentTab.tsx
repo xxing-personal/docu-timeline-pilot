@@ -160,29 +160,41 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
   };
 
   const deleteQueue = async (queueKey: string) => {
-    if (!confirm('Are you sure you want to delete this agent queue? This will remove all tasks and data.')) {
+    if (!confirm('Are you sure you want to delete this agent queue? This will remove all tasks, data, and related indices from the system.')) {
       return;
     }
 
     try {
+      console.log(`[AGENT TAB] Starting deletion of queue: ${queueKey}`);
+      
       const response = await fetch(`${API_BASE_URL}/agent/queue/${queueKey}`, {
         method: 'DELETE'
       });
       
       if (response.ok) {
         const data = await response.json();
-        console.log('Queue deleted:', data);
+        console.log('Queue deleted successfully:', data);
+        
+        // Show success message with details
+        const message = `Successfully deleted agent queue!\n\n` +
+          `- Queue: ${queueKey}\n` +
+          `- Tasks deleted: ${data.deletedTasks}\n` +
+          `- Indices deleted: ${data.deletedIndices}\n` +
+          `- Memory snapshots deleted: ${data.deletedMemorySnapshots}\n` +
+          `- Queue removed from database: ${data.queueDeletedFromDatabase ? 'Yes' : 'No'}`;
+        
+        alert(message);
         
         // Refresh queues
         await fetchAgentQueues(false);
       } else {
         const errorData = await response.json();
         console.error('Failed to delete queue:', errorData);
-        alert(`Failed to delete agent queue: ${errorData.error || 'Unknown error'}`);
+        alert(`Failed to delete agent queue: ${errorData.error || 'Unknown error'}\n\nDetails: ${errorData.details || 'No additional details'}`);
       }
     } catch (error) {
       console.error('Error deleting queue:', error);
-      alert('Failed to delete agent queue. Please try again.');
+      alert('Failed to delete agent queue. Please check your connection and try again.');
     }
   };
 

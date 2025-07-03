@@ -294,18 +294,23 @@ router.delete('/queue/:queueKey', async (req, res) => {
   const { queueKey } = req.params;
   
   try {
+    console.log(`[AGENT SERVICE] Starting deletion of queue: ${queueKey}`);
+    
     // Get queue info and tasks from database
     const queueInfo = await queueDb.getQueue(queueKey);
     if (!queueInfo) {
+      console.warn(`[AGENT SERVICE] Queue not found: ${queueKey}`);
       return res.status(404).json({ error: 'Queue not found' });
     }
     
     const tasks = await queueDb.getQueueTasks(queueKey);
+    console.log(`[AGENT SERVICE] Found ${tasks.length} tasks in queue ${queueKey}`);
     
     // Delete indices created by this agent queue
     let deletedIndicesCount = 0;
     try {
       deletedIndicesCount = await indicesDb.deleteIndicesByQueueKey(queueKey);
+      console.log(`[AGENT SERVICE] Deleted ${deletedIndicesCount} indices for queue ${queueKey}`);
     } catch (error) {
       console.error(`[AGENT SERVICE] Error deleting indices for queue ${queueKey}:`, error);
     }
@@ -324,20 +329,29 @@ router.delete('/queue/:queueKey', async (req, res) => {
     }
     
     // Delete the queue from database (this will also delete tasks and payloads)
-    await queueDb.deleteQueue(queueKey);
+    console.log(`[AGENT SERVICE] Deleting queue ${queueKey} from agent-queues.json database`);
+    const queueDeleted = await queueDb.deleteQueue(queueKey);
+    
+    if (queueDeleted) {
+      console.log(`[AGENT SERVICE] Successfully deleted queue ${queueKey} from agent-queues.json`);
+    } else {
+      console.warn(`[AGENT SERVICE] Queue ${queueKey} was not found in agent-queues.json during deletion`);
+    }
     
     // Remove the queue from memory if it exists
     if (agentQueues[queueKey]) {
       delete agentQueues[queueKey];
+      console.log(`[AGENT SERVICE] Removed queue ${queueKey} from in-memory storage`);
     }
     
-    console.log(`[AGENT SERVICE] Deleted queue ${queueKey} with ${tasks.length} tasks, ${deletedIndicesCount} indices`);
+    console.log(`[AGENT SERVICE] Successfully deleted queue ${queueKey} with ${tasks.length} tasks, ${deletedIndicesCount} indices, ${deletedMemoryCount} memory snapshots`);
     
     res.json({ 
       queueKey,
       deletedTasks: tasks.length,
       deletedIndices: deletedIndicesCount,
       deletedMemorySnapshots: deletedMemoryCount,
+      queueDeletedFromDatabase: queueDeleted,
       message: `Successfully deleted agent queue and cleaned up related data`
     });
   } catch (error) {
