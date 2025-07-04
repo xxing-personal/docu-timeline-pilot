@@ -593,24 +593,70 @@ export class IndicesDatabaseService {
       
       let deletedCount = 0;
       
-      // Find matching agents by queue key pattern
+      console.log(`[INDICES DATABASE] Looking for agents to delete with queue key: ${queueKey}`);
+      
+      // Extract agent type from queue key (e.g., "indices:query" -> "indices")
+      const agentType = queueKey.split(':')[0];
+      
+      // Find matching agents by multiple criteria
+      const agentsToDelete: string[] = [];
+      
       for (const [agentKey, agent] of Object.entries(this.db.data!.agents)) {
-        if (agentKey.includes(queueKey) || agent.agentInfo.queueKey === queueKey) {
-          // Count all indices in this agent
-          for (const task of Object.values(agent.tasks)) {
-            deletedCount += task.indices.length;
-          }
-          // Delete the entire agent
-          delete this.db.data!.agents[agentKey];
-          this.db.data!.statistics.totalAgents--;
-          this.db.data!.statistics.totalTasks -= Object.keys(agent.tasks).length;
+        let shouldDelete = false;
+        
+        // Method 1: Direct queue key match
+        if (agent.agentInfo.queueKey === queueKey) {
+          shouldDelete = true;
+          console.log(`[INDICES DATABASE] Found agent ${agentKey} with exact queueKey match`);
         }
+        
+        // Method 2: Agent key contains queue key
+        if (agentKey.includes(queueKey)) {
+          shouldDelete = true;
+          console.log(`[INDICES DATABASE] Found agent ${agentKey} with agentKey containing queueKey`);
+        }
+        
+        // Method 3: Match by agent type and agent naming pattern
+        if (agentType && (
+          (agentType === 'indices' && agentKey.includes('indices')) ||
+          (agentType === 'deep_research' && agentKey.includes('research')) ||
+          (agentType === 'indices' && agent.agentInfo.type === 'indices_creation') ||
+          (agentType === 'deep_research' && agent.agentInfo.type === 'deep_research')
+        )) {
+          shouldDelete = true;
+          console.log(`[INDICES DATABASE] Found agent ${agentKey} with type-based match (${agentType})`);
+        }
+        
+        if (shouldDelete) {
+          agentsToDelete.push(agentKey);
+        }
+      }
+      
+      console.log(`[INDICES DATABASE] Found ${agentsToDelete.length} agents to delete: ${agentsToDelete.join(', ')}`);
+      
+      // Delete the found agents
+      for (const agentKey of agentsToDelete) {
+        const agent = this.db.data!.agents[agentKey];
+        
+        // Count all indices in this agent
+        for (const task of Object.values(agent.tasks)) {
+          deletedCount += task.indices.length;
+        }
+        
+        // Delete the entire agent
+        delete this.db.data!.agents[agentKey];
+        this.db.data!.statistics.totalAgents--;
+        this.db.data!.statistics.totalTasks -= Object.keys(agent.tasks).length;
+        
+        console.log(`[INDICES DATABASE] Deleted agent ${agentKey} with ${Object.keys(agent.tasks).length} tasks`);
       }
       
       if (deletedCount > 0) {
         this.db.data!.statistics.totalIndices -= deletedCount;
         await this.db.write();
-        console.log(`[INDICES DATABASE] Deleted ${deletedCount} indices for queue key: ${queueKey}`);
+        console.log(`[INDICES DATABASE] Successfully deleted ${deletedCount} indices for queue key: ${queueKey}`);
+      } else {
+        console.warn(`[INDICES DATABASE] No indices found to delete for queue key: ${queueKey}`);
       }
       
       return deletedCount;
