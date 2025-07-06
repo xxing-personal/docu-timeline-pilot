@@ -47,7 +47,7 @@ export class Memory {
     const targetLength = Math.floor(this.maxLength / 2);
     const prompt = `The following is a long context string. Please compress or summarize it to fit within ${targetLength} characters, preserving as much important information as possible.\n\nContext:\n${this.context}`;
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+              model: 'o4-mini',
       messages: [
         { role: 'system', content: 'You are a helpful assistant that compresses and summarizes text.' },
         { role: 'user', content: prompt }

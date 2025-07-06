@@ -780,4 +780,67 @@ export class IndicesDatabaseService {
       this.mutex.release();
     }
   }
+
+  // Cleanup empty tasks (tasks with no indices)
+  async cleanupEmptyTasks(): Promise<{ removedTasks: number; removedAgents: number; message: string }> {
+    await this.mutex.acquire();
+    
+    try {
+      await this.ensureInitialized();
+      await this.db.read();
+      
+      let removedTasks = 0;
+      let removedAgents = 0;
+      const agentsToRemove: string[] = [];
+      
+      console.log('[INDICES DATABASE] Starting cleanup of empty tasks...');
+      
+      // Find and remove tasks with empty indices arrays
+      for (const [agentKey, agent] of Object.entries(this.db.data!.agents)) {
+        const tasksToRemove: string[] = [];
+        
+        for (const [taskId, task] of Object.entries(agent.tasks)) {
+          if (task.indices.length === 0) {
+            tasksToRemove.push(taskId);
+            console.log(`[INDICES DATABASE] Marking task ${taskId} for removal (empty indices)`);
+          }
+        }
+        
+        // Remove empty tasks
+        for (const taskId of tasksToRemove) {
+          delete agent.tasks[taskId];
+          removedTasks++;
+          this.db.data!.statistics.totalTasks--;
+        }
+        
+        // If agent has no tasks left, mark it for removal
+        if (Object.keys(agent.tasks).length === 0) {
+          agentsToRemove.push(agentKey);
+          console.log(`[INDICES DATABASE] Marking agent ${agentKey} for removal (no tasks left)`);
+        }
+      }
+      
+      // Remove agents with no tasks
+      for (const agentKey of agentsToRemove) {
+        delete this.db.data!.agents[agentKey];
+        removedAgents++;
+        this.db.data!.statistics.totalAgents--;
+      }
+      
+      // Save changes
+      await this.db.write();
+      
+      const message = `Cleanup completed: removed ${removedTasks} empty tasks and ${removedAgents} empty agents`;
+      console.log(`[INDICES DATABASE] ${message}`);
+      
+      return {
+        removedTasks,
+        removedAgents,
+        message
+      };
+      
+    } finally {
+      this.mutex.release();
+    }
+  }
 } 

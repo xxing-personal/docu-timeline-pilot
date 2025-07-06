@@ -106,7 +106,7 @@ Keep responses concise but informative.`;
 
       // Call OpenAI API
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "o4-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }

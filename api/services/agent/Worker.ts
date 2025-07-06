@@ -109,13 +109,12 @@ ${historicalScores}
 Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
 `;
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'o4-mini',
       messages: [
         { role: 'system', content: 'You are a helpful assistant for document analysis.' },
         { role: 'user', content: prompt }
       ],
       max_tokens: 512,
-      temperature: 0.3,
     });
     // Try to parse the output as JSON
     let output: any = {};
@@ -210,13 +209,12 @@ ${historicalResearch}
 Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
 `;
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'o4-mini',
       messages: [
         { role: 'system', content: 'You are a helpful assistant for research and summarization.' },
         { role: 'user', content: prompt }
       ],
       max_tokens: 512,
-      temperature: 0.3,
     });
     let output: any = {};
     let summary = '';
@@ -263,13 +261,12 @@ Return only the title, no quotes or additional text.
 `;
 
     const titleCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'o4-mini',
       messages: [
         { role: 'system', content: 'You are a helpful assistant for generating professional research article titles.' },
         { role: 'user', content: titlePrompt }
       ],
       max_tokens: 100,
-      temperature: 0.3,
     });
 
     const articleTitle = titleCompletion.choices[0]?.message?.content?.trim() || question;
@@ -332,7 +329,7 @@ ${JSON.stringify(timestampMap, null, 2)}
 Generate the complete markdown article following the structure and requirements above.
 `;
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'o4-mini',
       messages: [
         { role: 'system', content: 'You are an expert research analyst and writer specializing in comprehensive, quotes-based research articles.' },
         { role: 'user', content: prompt }

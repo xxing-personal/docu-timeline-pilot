@@ -30,7 +30,7 @@ You are analyzing a user query for an indices creation agent. The agent will ana
 User Query: "${userQuery}"
 
 Please provide:
-1. A clear analysis of what the user wants to measure or evaluate
+1. A clear analysis of what the users' intent. 
 2. A concise, descriptive name for this indices creation task (max 50 characters)
 
 Output as JSON (do not wrap in markdown code blocks):
@@ -42,13 +42,12 @@ Output as JSON (do not wrap in markdown code blocks):
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'o4-mini',
         messages: [
           { role: 'system', content: 'You are a helpful assistant for analyzing user intent for document analysis tasks.' },
           { role: 'user', content: intentPrompt }
         ],
         max_tokens: 200,
-        temperature: 0.3,
       });
 
       const response = completion.choices[0]?.message?.content;

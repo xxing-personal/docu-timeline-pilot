@@ -42,13 +42,12 @@ Output as JSON (do not wrap in markdown code blocks):
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'o4-mini',
         messages: [
           { role: 'system', content: 'You are a helpful assistant for analyzing user intent for research tasks.' },
           { role: 'user', content: intentPrompt }
         ],
         max_tokens: 200,
-        temperature: 0.3,
       });
 
       const response = completion.choices[0]?.message?.content;
