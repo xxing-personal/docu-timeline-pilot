@@ -2,7 +2,7 @@ import { AgentQueue, AgentTask } from './agentQueue';
 import { ResearchWorker, WritingWorker } from './Worker';
 import { Memory } from './memory';
 import { DatabaseService } from '../databaseService';
-import OpenAI from 'openai';
+import { callReasoningModel, extractJsonFromResponse } from '../openaiUtil';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -10,57 +10,48 @@ export class DeepResearchAgentQueue extends AgentQueue {
   private name: string;
   private intent: string;
   private dbService: DatabaseService;
-  private openai: OpenAI;
 
   constructor(memory: Memory) {
     super(memory);
     this.name = '';
     this.intent = '';
     this.dbService = new DatabaseService();
-    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
   }
 
   async initiate(userQuery: string): Promise<void> {
     console.log(`[DEEP RESEARCH AGENT] Initiating with query: ${userQuery}`);
     
     // Analyze user intent and generate task name using OpenAI
-    const intentPrompt = `
-You are analyzing a user query for a deep research agent. The agent will research PDF documents and generate a comprehensive article based on the user's question.
+    const systemPrompt = 'You are a helpful assistant for analyzing user intent for research tasks.';
+    
+    const userPrompt = `
+You are analyzing a user query for a deep research agent. The agent will analyze PDF documents to answer research questions.
 
 User Query: "${userQuery}"
 
 Please provide:
-1. A clear analysis of what the user wants to research or investigate
+1. A clear analysis of what the user wants to research and understand.
 2. A concise, descriptive name for this research task (max 50 characters)
 
 Output as JSON (do not wrap in markdown code blocks):
 {
-  "intent": "brief analysis of what user wants to research",
+  "intent": "brief analysis of research objective",
   "taskName": "concise task name"
 }
 `;
 
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'o4-mini',
-        messages: [
-          { role: 'system', content: 'You are a helpful assistant for analyzing user intent for research tasks.' },
-          { role: 'user', content: intentPrompt }
-        ],
-        max_tokens: 200,
-      });
-
-      const response = completion.choices[0]?.message?.content;
-      if (response) {
+    const response = await callReasoningModel(systemPrompt, userPrompt, '[DEEP RESEARCH AGENT QUEUE]');
+    
+    if (response.success) {
+      try {
         // Extract JSON from markdown code blocks if present
-        let jsonText = response;
-        const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-        if (codeBlockMatch) {
-          jsonText = codeBlockMatch[1].trim();
-        }
+        const jsonText = extractJsonFromResponse(response.text);
+        console.log('[DEEP RESEARCH AGENT QUEUE] JSON text to parse:', jsonText);
         
         const analysis = JSON.parse(jsonText);
-        this.name = analysis.taskName || `Research: ${userQuery.substring(0, 30)}...`;
+        console.log('[DEEP RESEARCH AGENT QUEUE] Parsed analysis:', analysis);
+        
+        this.name = analysis.taskName || `Deep Research: ${userQuery.substring(0, 30)}...`;
         this.intent = analysis.intent || '';
         
         // Add task info to memory (without intent since it's in prompt)
@@ -72,10 +63,15 @@ Output as JSON (do not wrap in markdown code blocks):
         
         console.log(`[DEEP RESEARCH AGENT] Task named: ${this.name}`);
         console.log(`[DEEP RESEARCH AGENT] Intent: ${this.intent}`);
+      } catch (error) {
+        console.error('[DEEP RESEARCH AGENT QUEUE] Error parsing JSON:', error);
+        this.name = `Deep Research: ${userQuery.substring(0, 30)}...`;
+        this.intent = 'Unable to analyze intent - JSON parsing error';
       }
-    } catch (error) {
-      console.error('[DEEP RESEARCH AGENT] Error analyzing intent:', error);
-      this.name = `Research: ${userQuery.substring(0, 30)}...`;
+    } else {
+      console.warn('[DEEP RESEARCH AGENT QUEUE] Failed to get response from OpenAI:', response.error);
+      this.name = `Deep Research: ${userQuery.substring(0, 30)}...`;
+      this.intent = 'Unable to analyze intent - API error';
     }
   }
 

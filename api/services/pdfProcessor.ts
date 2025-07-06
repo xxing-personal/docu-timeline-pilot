@@ -1,35 +1,25 @@
 import fs from 'fs/promises';
 import path from 'path';
 import pdfParse from 'pdf-parse';
-import OpenAI from 'openai';
+import { callReasoningModel } from './openaiUtil';
 import { PDFTask, PDFProcessingResult } from '../types';
 import { IndicesDatabaseService } from './indicesDatabaseService';
 
-export class PDFProcessor {
-  private openai: OpenAI;
-  private extractedTextDir: string;
+export class PdfProcessor {
+  private extractedTextsDir: string;
   private indicesDb: IndicesDatabaseService;
 
   constructor() {
-    // Initialize OpenAI client
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
-    
-    // Create directory for extracted text files
-    this.extractedTextDir = path.join(process.cwd(), 'extracted-texts');
-    this.ensureExtractedTextDir();
-    
-    // Initialize indices database
+    this.extractedTextsDir = path.join(process.cwd(), 'extracted-texts');
+    this.ensureDirectoriesExist();
     this.indicesDb = new IndicesDatabaseService();
   }
 
-  private async ensureExtractedTextDir(): Promise<void> {
+  private async ensureDirectoriesExist(): Promise<void> {
     try {
-      await fs.access(this.extractedTextDir);
-    } catch {
-      await fs.mkdir(this.extractedTextDir, { recursive: true });
-      console.log(`[PDF PROCESSOR] Created extracted text directory: ${this.extractedTextDir}`);
+      await fs.mkdir(this.extractedTextsDir, { recursive: true });
+    } catch (error) {
+      console.error('[PDF PROCESSOR] Error creating directories:', error);
     }
   }
 
@@ -37,7 +27,7 @@ export class PDFProcessor {
     // Create a safe filename for the markdown file
     const safeFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
     const markdownFilename = `${safeFilename}_extracted.md`;
-    const filePath = path.join(this.extractedTextDir, markdownFilename);
+    const filePath = path.join(this.extractedTextsDir, markdownFilename);
     
     // Create markdown content with metadata
     const markdownContent = `# Extracted Text: ${filename}
@@ -63,105 +53,6 @@ ${extractedText}
     return filePath;
   }
 
-  async process(task: PDFTask): Promise<PDFProcessingResult> {
-    console.log(`[PDF PROCESSOR] Starting processing for: ${task.filename} (Task ID: ${task.id})`);
-    
-    try {
-      // Check if file still exists
-      try {
-        await fs.access(task.path);
-      } catch {
-        throw new Error(`File not found: ${task.path}`);
-      }
-      
-      // Get file stats
-      const stats = await fs.stat(task.path);
-      
-      // Extract text from PDF - this is where the actual processing work begins
-      console.log(`[PDF PROCESSOR] Beginning text extraction from: ${task.filename}`);
-      const extractedText = await this.extractTextFromPDF(task.path);
-      
-      // Save extracted text to markdown file
-      console.log(`[PDF PROCESSOR] Saving extracted text to file for: ${task.filename}`);
-      const extractedTextPath = await this.saveExtractedTextToFile(task.filename, extractedText);
-      
-      // Generate summary using OpenAI
-      console.log(`[PDF PROCESSOR] Generating AI summary for: ${task.filename}`);
-      const summary = await this.generateSummary(extractedText, task.filename);
-      
-      // Parse inferred timestamp from summary
-      const inferredTimestamp = this.parseInferredTimestamp(summary);
-      if (inferredTimestamp) {
-        console.log(`[PDF PROCESSOR] Inferred timestamp found: ${inferredTimestamp} for ${task.filename}`);
-        await this.updateFileTimestamps(task.filename, inferredTimestamp);
-      } else {
-        console.log(`[PDF PROCESSOR] No valid timestamp inferred for ${task.filename}`);
-      }
-
-      // Parse all *_INDEX fields from summary
-      const analysisScores: Record<string, number> = {};
-      const indexPattern = /([A-Z_]+_INDEX):\s*([0-9.]+)/g;
-      let match;
-      while ((match = indexPattern.exec(summary)) !== null) {
-        const key = match[1].replace('_INDEX', '').toLowerCase();
-        const value = parseFloat(match[2]);
-        if (!isNaN(value)) {
-          analysisScores[key] = value;
-        }
-      }
-      
-      // Save indices to the indices database if any were found
-      console.log(`[PDF PROCESSOR] Found ${Object.keys(analysisScores).length} analysis scores for ${task.filename}:`, analysisScores);
-      if (Object.keys(analysisScores).length > 0) {
-        try {
-          console.log(`[PDF PROCESSOR] Attempting to save indices to database for ${task.filename}`);
-          await this.indicesDb.addPdfProcessingIndex(
-            task.id,
-            task.filename,
-            analysisScores,
-            inferredTimestamp || undefined,
-            task.id
-          );
-          console.log(`[PDF PROCESSOR] Successfully saved indices to database for ${task.filename}`);
-        } catch (error) {
-          console.error(`[PDF PROCESSOR] Failed to save indices to database for ${task.filename}:`, error);
-        }
-      } else {
-        console.log(`[PDF PROCESSOR] No analysis scores found for ${task.filename}`);
-      }
-      
-      // Get page count from pdf-parse results
-      const pdfBuffer = await fs.readFile(task.path);
-      const pdfData = await pdfParse(pdfBuffer);
-      
-      const result: PDFProcessingResult = {
-        filename: task.filename,
-        processedAt: new Date().toISOString(),
-        extractedTextPath: extractedTextPath, // Return the path instead of the text
-        summary: summary,
-        pageCount: pdfData.numpages,
-        fileSize: stats.size,
-        metadata: {
-          createdAt: stats.birthtime,
-          modifiedAt: stats.mtime,
-          processingDuration: Date.now(), // Will be calculated later
-          pdfInfo: pdfData.info || {},
-          textLength: extractedText.length,
-          summaryLength: summary.length,
-          inferredTimestamp: inferredTimestamp || null,
-          analysisScores
-        }
-      };
-      
-      console.log(`[PDF PROCESSOR] Successfully completed processing: ${task.filename} (${pdfData.numpages} pages, ${extractedText.length} chars)`);
-      return result;
-      
-    } catch (error) {
-      console.error(`Error processing PDF ${task.filename}:`, error);
-      throw new Error(`Failed to process PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-  
   private async extractTextFromPDF(filePath: string): Promise<string> {
     try {
       const pdfBuffer = await fs.readFile(filePath);
@@ -187,7 +78,7 @@ ${extractedText}
       throw new Error(`Text extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
-  
+
   private async generateSummary(text: string, filename: string): Promise<string> {
     try {
       // Check if OpenAI API key is available
@@ -200,48 +91,43 @@ ${extractedText}
       const maxChars = 12000; // Roughly 3000 tokens
       const truncatedText = text.length > maxChars ? text.substring(0, maxChars) + '...' : text;
       
-      const completion = await this.openai.chat.completions.create({
-        model: "gpt-4.1-mini",
-        messages: [
-          {
-            role: "system",
-            content: `You are an expert document analyst. Analyze the document and provide a comprehensive summary with the following structure:
+      const systemPrompt = 'You are a helpful assistant that analyzes documents and extracts structured information. You must respond with valid JSON only, without any markdown formatting or code blocks.';
+      
+      const userPrompt = `Please analyze the following document content from "${filename}" and provide a comprehensive summary in JSON format.
 
+Document content:
+${truncatedText}
+
+Please respond with a JSON object containing:
 1. ONE_SENTENCE_SUMMARY: A concise one-sentence summary of the document
-2. BULLET_POINTS: 3-6 key bullet points highlighting main topics and important details
+2. BULLET_POINTS: Array of 3-6 key bullet points highlighting main topics and important details
 3. CONFIDENCE_INDEX: A number between 0-1 indicating your confidence in the accuracy of your analysis (0 = very uncertain, 1 = very confident)
 4. SENTIMENT_INDEX: A number between 0-1 indicating the overall sentiment of the document (0 = very negative, 0.5 = neutral, 1 = very positive)
 5. INFERRED_TIMESTAMP: If you can identify a clear date or timestamp from the document content (like "created on", "dated", "published", "issued", etc.), provide it in ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ). If no clear timestamp is found, respond with "NOT_FOUND".
 
-Format your response exactly as follows:
-ONE_SENTENCE_SUMMARY: [your one-sentence summary]
-BULLET_POINTS:
-• [bullet point 1]
-• [bullet point 2]
-• [bullet point 3]
-• [bullet point 4]
-• [bullet point 5]
-• [bullet point 6]
-CONFIDENCE_INDEX: [number between 0-1]
-SENTIMENT_INDEX: [number between 0-1]
-INFERRED_TIMESTAMP: [ISO 8601 timestamp or NOT_FOUND]`
-          },
-          {
-            role: "user",
-            content: `Please analyze the following document content from "${filename}":\n\n${truncatedText}`
-          }
-        ],
-        max_tokens: 800,
-        temperature: 0.3
-      });
+Example response:
+{
+  "ONE_SENTENCE_SUMMARY": "This document discusses quarterly financial results showing positive growth.",
+  "BULLET_POINTS": [
+    "Revenue increased by 15% compared to previous quarter",
+    "New product launches contributed significantly to growth",
+    "Market expansion into emerging markets shows promise"
+  ],
+  "CONFIDENCE_INDEX": 0.9,
+  "SENTIMENT_INDEX": 0.7,
+  "INFERRED_TIMESTAMP": "2024-03-15T10:00:00.000Z"
+}
+
+Respond only with the JSON object, no additional text or markdown formatting.`;
+
+      const response = await callReasoningModel(systemPrompt, userPrompt, '[PDF PROCESSOR]');
       
-      const summary = completion.choices[0]?.message?.content;
-      
-      if (!summary) {
-        throw new Error('No summary generated by OpenAI');
+      if (!response.success || !response.text) {
+        throw new Error(response.error || 'No response generated by OpenAI');
       }
       
-      return summary.trim();
+      console.log(`[PDF PROCESSOR] OpenAI response: ${response.text}`);
+      return response.text;
       
     } catch (error) {
       console.error('Summary generation error:', error);
@@ -249,7 +135,7 @@ INFERRED_TIMESTAMP: [ISO 8601 timestamp or NOT_FOUND]`
       return this.generatePlaceholderSummary(text, filename);
     }
   }
-  
+
   private generatePlaceholderSummary(text: string, filename: string): string {
     // Generate a basic summary when OpenAI is not available
     const words = text.split(/\s+/);
@@ -290,7 +176,7 @@ INFERRED_TIMESTAMP: NOT_FOUND`;
       return false;
     }
   }
-  
+
   // Method to get PDF metadata without full processing
   async getMetadata(filePath: string): Promise<Record<string, any>> {
     try {
@@ -312,6 +198,105 @@ INFERRED_TIMESTAMP: NOT_FOUND`;
         fileSize: 0,
         error: 'Failed to extract PDF metadata'
       };
+    }
+  }
+
+  async process(task: PDFTask): Promise<PDFProcessingResult> {
+    console.log(`[PDF PROCESSOR] Starting processing for: ${task.filename} (Task ID: ${task.id})`);
+    
+    try {
+      // Check if file still exists
+      try {
+        await fs.access(task.path);
+      } catch {
+        throw new Error(`File not found: ${task.path}`);
+      }
+      
+      // Get file stats
+      const stats = await fs.stat(task.path);
+      
+      // Extract text from PDF - this is where the actual processing work begins
+      console.log(`[PDF PROCESSOR] Beginning text extraction from: ${task.filename}`);
+      const extractedText = await this.extractTextFromPDF(task.path);
+      
+      // Save extracted text to markdown file
+      console.log(`[PDF PROCESSOR] Saving extracted text to file for: ${task.filename}`);
+      const extractedTextPath = await this.saveExtractedTextToFile(task.filename, extractedText);
+      
+      // Analyze document with AI
+      console.log(`[PDF PROCESSOR] Analyzing document with AI for: ${task.filename}`);
+      const analysis = await this.generateSummary(extractedText, task.filename);
+      
+      // Parse inferred timestamp from summary
+      const inferredTimestamp = this.parseInferredTimestamp(analysis);
+      if (inferredTimestamp) {
+        console.log(`[PDF PROCESSOR] Inferred timestamp found: ${inferredTimestamp} for ${task.filename}`);
+        await this.updateFileTimestamps(task.filename, inferredTimestamp);
+      } else {
+        console.log(`[PDF PROCESSOR] No valid timestamp inferred for ${task.filename}`);
+      }
+
+      // Parse all *_INDEX fields from summary
+      const analysisScores: Record<string, number> = {};
+      const indexPattern = /([A-Z_]+_INDEX):\s*([0-9.]+)/g;
+      let match;
+      while ((match = indexPattern.exec(analysis)) !== null) {
+        const key = match[1].replace('_INDEX', '').toLowerCase();
+        const value = parseFloat(match[2]);
+        if (!isNaN(value)) {
+          analysisScores[key] = value;
+        }
+      }
+      
+      // Save indices to the indices database if any were found
+      console.log(`[PDF PROCESSOR] Found ${Object.keys(analysisScores).length} analysis scores for ${task.filename}:`, analysisScores);
+      if (Object.keys(analysisScores).length > 0) {
+        try {
+          console.log(`[PDF PROCESSOR] Attempting to save indices to database for ${task.filename}`);
+          await this.indicesDb.addPdfProcessingIndex(
+            task.id,
+            task.filename,
+            analysisScores,
+            inferredTimestamp || undefined,
+            task.id
+          );
+          console.log(`[PDF PROCESSOR] Successfully saved indices to database for ${task.filename}`);
+        } catch (error) {
+          console.error(`[PDF PROCESSOR] Failed to save indices to database for ${task.filename}:`, error);
+        }
+      } else {
+        console.log(`[PDF PROCESSOR] No analysis scores found for ${task.filename}`);
+      }
+      
+      // Get page count from pdf-parse results
+      const pdfBuffer = await fs.readFile(task.path);
+      const pdfData = await pdfParse(pdfBuffer);
+      
+      const result: PDFProcessingResult = {
+        filename: task.filename,
+        processedAt: new Date().toISOString(),
+        extractedTextPath: extractedTextPath, // Return the path instead of the text
+        summary: analysis,
+        pageCount: pdfData.numpages,
+        fileSize: stats.size,
+        metadata: {
+          createdAt: stats.birthtime,
+          modifiedAt: stats.mtime,
+          processingDuration: Date.now(), // Will be calculated later
+          pdfInfo: pdfData.info || {},
+          textLength: extractedText.length,
+          summaryLength: analysis.length,
+          inferredTimestamp: inferredTimestamp || null,
+          analysisScores
+        }
+      };
+      
+      console.log(`[PDF PROCESSOR] Successfully completed processing: ${task.filename} (${pdfData.numpages} pages, ${extractedText.length} chars)`);
+      return result;
+      
+    } catch (error) {
+      console.error(`Error processing PDF ${task.filename}:`, error);
+      throw new Error(`Failed to process PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

@@ -2,7 +2,7 @@ import { AgentQueue, AgentTask } from './agentQueue';
 import { ComparisonWorker } from './Worker';
 import { Memory } from './memory';
 import { DatabaseService } from '../databaseService';
-import OpenAI from 'openai';
+import { callReasoningModel, extractJsonFromResponse } from '../openaiUtil';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -10,21 +10,21 @@ export class IndicesAgentQueue extends AgentQueue {
   private name: string;
   private intent: string;
   private dbService: DatabaseService;
-  private openai: OpenAI;
 
   constructor(memory: Memory) {
     super(memory);
     this.name = '';
     this.intent = '';
     this.dbService = new DatabaseService();
-    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
   }
 
   async initiate(userQuery: string): Promise<void> {
     console.log(`[INDICES AGENT] Initiating with query: ${userQuery}`);
     
     // Analyze user intent and generate task name using OpenAI
-    const intentPrompt = `
+    const systemPrompt = 'You are a helpful assistant for analyzing user intent for document analysis tasks.';
+    
+    const userPrompt = `
 You are analyzing a user query for an indices creation agent. The agent will analyze PDF documents and create scoring indices based on the user's question.
 
 User Query: "${userQuery}"
@@ -40,26 +40,17 @@ Output as JSON (do not wrap in markdown code blocks):
 }
 `;
 
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'o4-mini',
-        messages: [
-          { role: 'system', content: 'You are a helpful assistant for analyzing user intent for document analysis tasks.' },
-          { role: 'user', content: intentPrompt }
-        ],
-        max_tokens: 200,
-      });
-
-      const response = completion.choices[0]?.message?.content;
-      if (response) {
+    const response = await callReasoningModel(systemPrompt, userPrompt, '[INDICES AGENT QUEUE]');
+    
+    if (response.success) {
+      try {
         // Extract JSON from markdown code blocks if present
-        let jsonText = response;
-        const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-        if (codeBlockMatch) {
-          jsonText = codeBlockMatch[1].trim();
-        }
+        const jsonText = extractJsonFromResponse(response.text);
+        console.log('[INDICES AGENT QUEUE] JSON text to parse:', jsonText);
         
         const analysis = JSON.parse(jsonText);
+        console.log('[INDICES AGENT QUEUE] Parsed analysis:', analysis);
+        
         this.name = analysis.taskName || `Indices: ${userQuery.substring(0, 30)}...`;
         this.intent = analysis.intent || '';
         
@@ -72,10 +63,15 @@ Output as JSON (do not wrap in markdown code blocks):
         
         console.log(`[INDICES AGENT] Task named: ${this.name}`);
         console.log(`[INDICES AGENT] Intent: ${this.intent}`);
+      } catch (error) {
+        console.error('[INDICES AGENT QUEUE] Error parsing JSON:', error);
+        this.name = `Indices: ${userQuery.substring(0, 30)}...`;
+        this.intent = 'Unable to analyze intent - JSON parsing error';
       }
-    } catch (error) {
-      console.error('[INDICES AGENT] Error analyzing intent:', error);
+    } else {
+      console.warn('[INDICES AGENT QUEUE] Failed to get response from OpenAI:', response.error);
       this.name = `Indices: ${userQuery.substring(0, 30)}...`;
+      this.intent = 'Unable to analyze intent - API error';
     }
   }
 

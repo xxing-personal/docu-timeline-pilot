@@ -1,17 +1,8 @@
 import { Memory } from './memory';
 import { MemoryDatabaseService } from './memoryDatabaseService';
-import OpenAI from 'openai';
 import { IndicesDatabaseService } from '../indicesDatabaseService';
-
-// Utility function to extract JSON from OpenAI response
-function extractJsonFromResponse(text: string): string {
-  // Extract JSON from markdown code blocks if present
-  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (codeBlockMatch) {
-    return codeBlockMatch[1].trim();
-  }
-  return text.trim();
-}
+import { callReasoningModel, callWritingModel, extractJsonFromResponse } from '../openaiUtil';
+import OpenAI from 'openai';
 
 export abstract class Worker {
   protected memory: Memory;
@@ -22,23 +13,23 @@ export abstract class Worker {
     this.memoryDb = new MemoryDatabaseService();
   }
 
-  // Subclasses implement this
   protected abstract coreProcess(taskPayload: any, context: string): Promise<string | object>;
 
-  // Unified process method
   async process(taskPayload: any, taskId: string): Promise<any> {
-    const context = this.memory.getContext();
+    console.log(`[WORKER] Starting task: ${taskId}`);
+    
+    // Get context from memory
+    const context = await this.memory.getContext();
     console.log(`[WORKER] Context for task ${taskId}:`);
     console.log(`[WORKER] Context length: ${context.length} characters`);
-    console.log(`[WORKER] Context content:`, context);
-    console.log(`[WORKER] --- End Context ---`);
+    console.log(`[WORKER] Context content: ${context.substring(0, 200)}${context.length > 200 ? '...' : ''}`);
     
-    // Call subclass-specific logic
+    // Process the task
     const result = await this.coreProcess(taskPayload, context);
-    // Add result to memory with better formatting
-    const resultString = typeof result === 'string' ? result : JSON.stringify(result);
-    const formattedResult = `\n--- TASK RESULT ---\n${resultString}\n--- END TASK RESULT ---\n`;
-    await this.memory.add(formattedResult);
+    
+    // Update memory with result
+    await this.memory.add(`Task ${taskId} completed with result: ${JSON.stringify(result).substring(0, 500)}`);
+    
     return result;
   }
 }
@@ -52,10 +43,7 @@ export class ComparisonWorker extends Worker {
   }
 
   protected async coreProcess(taskPayload: any, context: string): Promise<object> {
-    // Use OpenAI API to analyze the article
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-    const question = taskPayload.question || '';
-    const intent = taskPayload.intent || '';
     
     // Load article text from file if not provided directly
     let article = taskPayload.article || '';
@@ -74,27 +62,33 @@ export class ComparisonWorker extends Worker {
         throw new Error(`Failed to load article text: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
-    
-    const historicalScores = context;
-    const article_id = taskPayload.article_id || '';
-    const prompt = `
-You are given an article.
 
-1. Please provide a score based on the question and the historical scores. If there is historical data, do not change the score name. If there is no historical data, create a new score name based on the question and article.
-2. Extract several pieces of quoting from the article that support your score. Cite the original sentences.
+    const article_id = taskPayload.article_id || '';
+    const historicalScores = context;
+    const question = taskPayload.question || '';
+    const intent = taskPayload.intent || '';
+    const timestamp = taskPayload.timestamp;
+
+    const systemPrompt = 'You are a helpful assistant for document analysis.';
+    
+    const userPrompt = `
+You are given an article and some historical scores context.
+
+1. Create a scoring index based on the user question, referring to the article. Take into account the historical scores context if relevant. Be consistent with historical scoring patterns but allow for changes over time.
+2. Extract several pieces of quotes from the article that support your score. Cite the original sentences.
 3. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
 
 Example output:
 {
   "score_name": "Inflation Sentiment Index",
-  "score_value": 0.3,
+  "score_value": 0.7,
   "article_id": "${article_id}",
   "quotes": [
     "Inflation remained elevated.",
     "Participants agreed that inflation was unacceptably high and noted that the data indicated that declines in inflation had been slower than they had expected.",
     "Participants generally noted that economic activity had continued to expand at a modest pace but there were some signs that supply and demand in the labor market were coming into better balance."
   ],
-  "rational": "The score of 0.3 reflects a moderately positive sentiment towards inflation management, indicating that while inflation is acknowledged as a concern, there is also a recognition of the potential for stabilization and control through policy measures. This is consistent with historical scores that show a cautious but proactive stance on inflation."
+  "rational": "The score of 0.7 reflects a moderately high concern about inflation, consistent with the language used in the document. This score is slightly higher than the previous month due to the explicit mention of elevated inflation levels and slower-than-expected declines."
 }
 
 Article:
@@ -102,58 +96,61 @@ ${article}
 
 Question: ${question}
 ${intent ? `Intent: ${intent}` : ''}
+${timestamp ? `Document Timestamp: ${timestamp}` : ''}
 
 Historical Scores: 
 ${historicalScores}
 
 Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
 `;
-    const completion = await openai.chat.completions.create({
-      model: 'o4-mini',
-      messages: [
-        { role: 'system', content: 'You are a helpful assistant for document analysis.' },
-        { role: 'user', content: prompt }
-      ],
-      max_tokens: 512,
-    });
+
+    const response = await callReasoningModel(systemPrompt, userPrompt, '[COMPARISON WORKER]');
+    
     // Try to parse the output as JSON
     let output: any = {};
     let scoreSummary = '';
-    try {
-      const text = completion.choices[0]?.message?.content || '';
-      const jsonText = extractJsonFromResponse(text);
-      output = JSON.parse(jsonText);
-      if (output.score_name && output.score_value !== undefined) {
-        scoreSummary = `${output.score_name}: ${output.score_value}`;
+    
+    if (!response.success) {
+      output = { error: response.error || 'Failed to get response from OpenAI', raw: response.text };
+    } else {
+      try {
+        const jsonText = extractJsonFromResponse(response.text);
+        console.log('[COMPARISON WORKER] Extracted JSON text:', jsonText);
         
-        // Save the index to the indices database
-        try {
-          await this.indicesDb.addIndicesCreationIndex(
-            output.score_name,
-            output.score_value,
-            output.article_id || taskPayload.article_id,
-            taskPayload.filename || 'unknown',
-            output.quotes || [],
-            output.rational || '',
-            taskPayload.timestamp,
-            taskPayload.taskId
-          );
-        } catch (error) {
-          console.error(`[COMPARISON WORKER] Failed to save index to database:`, error);
+        output = JSON.parse(jsonText);
+        console.log('[COMPARISON WORKER] Parsed JSON output:', output);
+        
+        if (output.score_name && output.score_value !== undefined) {
+          scoreSummary = `${output.score_name}: ${output.score_value}`;
+          
+          // Save the index to the indices database
+          try {
+            await this.indicesDb.addIndicesCreationIndex(
+              output.score_name,
+              output.score_value,
+              output.article_id || taskPayload.article_id,
+              taskPayload.filename || 'unknown',
+              output.quotes || [],
+              output.rational || '',
+              taskPayload.timestamp,
+              taskPayload.taskId
+            );
+          } catch (error) {
+            console.error(`[COMPARISON WORKER] Failed to save index to database:`, error);
+          }
         }
+      } catch (e) {
+        console.error('[COMPARISON WORKER] Error parsing JSON:', e);
+        output = { error: 'Failed to parse OpenAI output as JSON', raw: response.text };
       }
-    } catch (e) {
-      output = { error: 'Failed to parse OpenAI output as JSON', raw: completion.choices[0]?.message?.content };
     }
+    
     return { ...output, scoreSummary };
   }
 }
 
 export class ResearchWorker extends Worker {
   protected async coreProcess(taskPayload: any, context: string): Promise<object> {
-    // Use OpenAI API to generate a summary of the article
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-    
     // Load article text from file if not provided directly
     let article = taskPayload.article || '';
     if (!article && taskPayload.extractedTextPath) {
@@ -177,7 +174,10 @@ export class ResearchWorker extends Worker {
     const question = taskPayload.question || '';
     const intent = taskPayload.intent || '';
     const timestamp = taskPayload.timestamp;
-    const prompt = `
+    
+    const systemPrompt = 'You are a helpful assistant for research and summarization.';
+    
+    const userPrompt = `
 You are given an article and some historical research context.
 
 1. Write a small paragraph to answer the question, referring to the article. Take into account the historical research context if relevant. Be concise and informative. Try to get as much incremental information as possible from the article compared to historical research context.
@@ -208,25 +208,29 @@ ${historicalResearch}
 
 Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
 `;
-    const completion = await openai.chat.completions.create({
-      model: 'o4-mini',
-      messages: [
-        { role: 'system', content: 'You are a helpful assistant for research and summarization.' },
-        { role: 'user', content: prompt }
-      ],
-      max_tokens: 512,
-    });
+
+    const response = await callReasoningModel(systemPrompt, userPrompt, '[RESEARCH WORKER]');
+    
     let output: any = {};
     let summary = '';
-    try {
-      const text = completion.choices[0]?.message?.content || '';
-      const jsonText = extractJsonFromResponse(text);
-      output = JSON.parse(jsonText);
-      if (output.answer) {
-        summary = output.answer;
+    
+    if (!response.success) {
+      output = { error: response.error || 'Failed to get response from OpenAI', raw: response.text };
+    } else {
+      try {
+        const jsonText = extractJsonFromResponse(response.text);
+        console.log('[RESEARCH WORKER] Extracted JSON text:', jsonText);
+        
+        output = JSON.parse(jsonText);
+        console.log('[RESEARCH WORKER] Parsed JSON output:', output);
+        
+        if (output.answer) {
+          summary = output.answer;
+        }
+      } catch (e) {
+        console.error('[RESEARCH WORKER] Error parsing JSON:', e);
+        output = { error: 'Failed to parse OpenAI output as JSON', raw: response.text };
       }
-    } catch (e) {
-      output = { error: 'Failed to parse OpenAI output as JSON', raw: completion.choices[0]?.message?.content };
     }
     
     // Add timestamp to output if available
@@ -240,8 +244,6 @@ Output only the JSON object as described above. Do not wrap it in markdown code 
 
 export class WritingWorker extends Worker {
   protected async coreProcess(taskPayload: any, context: string): Promise<object> {
-    // Use OpenAI API to generate a long markdown article
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
     const question = taskPayload.question || '';
     const intent = taskPayload.intent || '';
     const historicalResearch = context;
@@ -250,7 +252,9 @@ export class WritingWorker extends Worker {
     const timestampMap = taskPayload.timestampMap || {};
     
     // First, generate a proper title for the article
-    const titlePrompt = `
+    const titleSystemPrompt = 'You are a helpful assistant for generating professional research article titles.';
+    
+    const titleUserPrompt = `
 Based on this research question and intent, generate a clear, professional title for a research article:
 
 Question: ${question}
@@ -260,18 +264,14 @@ Generate a concise, descriptive title (max 60 characters) that would be appropri
 Return only the title, no quotes or additional text.
 `;
 
-    const titleCompletion = await openai.chat.completions.create({
-      model: 'o4-mini',
-      messages: [
-        { role: 'system', content: 'You are a helpful assistant for generating professional research article titles.' },
-        { role: 'user', content: titlePrompt }
-      ],
-      max_tokens: 100,
-    });
-
-    const articleTitle = titleCompletion.choices[0]?.message?.content?.trim() || question;
+    const titleResponse = await callReasoningModel(titleSystemPrompt, titleUserPrompt, '[WRITING WORKER - TITLE]');
     
-    const prompt = `
+    const articleTitle = titleResponse.text || question;
+    console.log('[WRITING WORKER] Generated article title:', articleTitle);
+    
+    const articleSystemPrompt = 'You are an expert research analyst and writer specializing in comprehensive, quotes-based research articles.';
+    
+    const articleUserPrompt = `
 You are an expert research analyst writing a comprehensive research article. Based on the provided research context from multiple documents, create a professional, well-structured markdown article.
 
 Research Question: ${question}
@@ -328,20 +328,14 @@ ${JSON.stringify(timestampMap, null, 2)}
 
 Generate the complete markdown article following the structure and requirements above.
 `;
-    const completion = await openai.chat.completions.create({
-      model: 'o4-mini',
-      messages: [
-        { role: 'system', content: 'You are an expert research analyst and writer specializing in comprehensive, quotes-based research articles.' },
-        { role: 'user', content: prompt }
-      ],
-      max_tokens: 3000,
-      temperature: 0.7,
-    });
+
+    const articleResponse = await callWritingModel(articleSystemPrompt, articleUserPrompt, '[WRITING WORKER - ARTICLE]');
+    
     let article = '';
-    try {
-      article = completion.choices[0]?.message?.content?.trim() || '';
-    } catch (e) {
-      article = 'Failed to generate article.';
+    if (!articleResponse.success) {
+      article = 'Failed to generate article - ' + (articleResponse.error || 'Unknown error');
+    } else {
+      article = articleResponse.text || 'Failed to generate article.';
     }
     
     // Save the article as a markdown file

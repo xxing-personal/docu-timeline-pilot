@@ -1,61 +1,55 @@
 import OpenAI from 'openai';
-
-export type ShrinkMode = 'truncate' | 'compress';
+import { MemoryDatabaseService } from './memoryDatabaseService';
+import { callReasoningModel } from '../openaiUtil';
 
 export class Memory {
-  private context: string;
-  private maxLength: number;
-  private openai: OpenAI;
-  private shrinkMode: ShrinkMode;
   private id: string;
+  private context: string = '';
+  private maxLength: number = 1000; // Max characters
+  private memoryDb: MemoryDatabaseService;
 
-  constructor(id: string, initialContext = '', maxLength = 10000, shrinkMode: ShrinkMode = 'truncate') {
+  constructor(id: string) {
     this.id = id;
-    this.context = initialContext;
-    this.maxLength = maxLength;
-    this.shrinkMode = shrinkMode;
-    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+    this.memoryDb = new MemoryDatabaseService();
   }
 
-  setShrinkMode(mode: ShrinkMode) {
-    this.shrinkMode = mode;
-  }
-
-  async add(text: string) {
-    this.context += text;
+  async add(text: string): Promise<void> {
+    this.context += `\n${text}`;
     if (this.context.length > this.maxLength) {
-      if (this.shrinkMode === 'compress') {
-        this.compress();
-      } else {
-        this.truncate();
-      }
+      await this.compress();
     }
-    // Saving to file removed; use MemoryDatabaseService for persistence
+    
+    // Save snapshot to database using the correct method
+    await this.memoryDb.addSnapshot({
+      id: this.id,
+      context: this.context,
+      maxLength: this.maxLength,
+      shrinkMode: 'compress'
+    });
   }
 
-  getContext() {
+  async getContext(): Promise<string> {
     return this.context;
   }
 
-  truncate() {
-    if (this.context.length > this.maxLength) {
-      this.context = this.context.slice(this.context.length - this.maxLength);
+  private async compress(): Promise<void> {
+    const targetLength = Math.floor(this.maxLength / 2);
+    
+    const systemPrompt = 'You are a helpful assistant that compresses and summarizes text.';
+    const userPrompt = `The following is a long context string. Please compress or summarize it to fit within ${targetLength} characters, preserving as much important information as possible.\n\nContext:\n${this.context}`;
+    
+    const response = await callReasoningModel(systemPrompt, userPrompt, '[MEMORY COMPRESSION]');
+    
+    if (response.success && response.text) {
+      this.context = response.text;
     }
+    
+    this.truncate();
   }
 
-  async compress() {
-    const targetLength = Math.floor(this.maxLength / 2);
-    const prompt = `The following is a long context string. Please compress or summarize it to fit within ${targetLength} characters, preserving as much important information as possible.\n\nContext:\n${this.context}`;
-    const completion = await this.openai.chat.completions.create({
-              model: 'o4-mini',
-      messages: [
-        { role: 'system', content: 'You are a helpful assistant that compresses and summarizes text.' },
-        { role: 'user', content: prompt }
-      ],
-      max_tokens: Math.floor(targetLength / 4),
-      temperature: 0.3,
-    });
-    this.context = completion.choices[0]?.message?.content || this.context;
-    this.truncate();
+  private truncate(): void {
+    if (this.context.length > this.maxLength) {
+      this.context = this.context.substring(this.context.length - this.maxLength);
+    }
   }
 } 
