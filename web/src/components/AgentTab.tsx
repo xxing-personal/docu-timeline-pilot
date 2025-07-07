@@ -51,7 +51,7 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
   const [agentQueues, setAgentQueues] = useState<AgentQueue[]>([]);
   const [loading, setLoading] = useState(false);
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
-  const [selectedAgentType, setSelectedAgentType] = useState<'indices' | 'deep_research' | null>(null);
+  const [selectedAgentType, setSelectedAgentType] = useState<'indices' | 'deep_research' | 'change_statement' | null>(null);
   const [agentQuery, setAgentQuery] = useState('');
   const [agentLoading, setAgentLoading] = useState(false);
   const [selectedQueue, setSelectedQueue] = useState<AgentQueue | null>(null);
@@ -238,6 +238,8 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
         return 'Indices Creation';
       case 'deep_research':
         return 'Deep Research';
+      case 'change_statement':
+        return 'Change of Statement';
       default:
         return agentType;
     }
@@ -570,6 +572,13 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                   className="flex-1"
                 >
                   Deep Research
+                </Button>
+                <Button
+                  variant={selectedAgentType === 'change_statement' ? 'default' : 'outline'}
+                  onClick={() => setSelectedAgentType('change_statement')}
+                  className="flex-1"
+                >
+                  Change of Statement
                 </Button>
               </div>
             </div>
