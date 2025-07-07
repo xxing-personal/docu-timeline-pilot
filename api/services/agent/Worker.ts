@@ -386,4 +386,101 @@ ${article}`;
       return { article, articleTitle };
     }
   }
+}
+
+export class ChangeOfStatementWorker extends Worker {
+  protected async coreProcess(taskPayload: any, context: string): Promise<object> {
+    // Load article text from file if not provided directly
+    let article = taskPayload.article || '';
+    if (!article && taskPayload.extractedTextPath) {
+      try {
+        const fs = require('fs/promises');
+        const path = require('path');
+        // Check if the path is already absolute or relative
+        const fullPath = path.isAbsolute(taskPayload.extractedTextPath) 
+          ? taskPayload.extractedTextPath 
+          : path.join(process.cwd(), taskPayload.extractedTextPath);
+        article = await fs.readFile(fullPath, 'utf-8');
+        console.log(`[CHANGE OF STATEMENT WORKER] Loaded article from: ${fullPath}`);
+      } catch (error) {
+        console.error(`[CHANGE OF STATEMENT WORKER] Failed to load article from ${taskPayload.extractedTextPath}:`, error);
+        throw new Error(`Failed to load article text: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    const article_id = taskPayload.article_id || '';
+    const historicalAnalysis = context;
+    const question = taskPayload.question || '';
+    const intent = taskPayload.intent || '';
+    const timestamp = taskPayload.timestamp;
+
+    const systemPrompt = 'You are a helpful assistant for analyzing changes in statements, language, tone, and messaging in documents.';
+    
+    const userPrompt = `
+You are analyzing a document to identify changes in statements, language, tone, or messaging. Your task is to track qualitative changes in how concepts are discussed, framed, or presented.
+
+1. Analyze the document for statements, language patterns, tone, and messaging related to the focus area.
+2. Compare with historical analysis to identify changes, evolution, or shifts in approach.
+3. Extract specific quotes that demonstrate these changes or continuities.
+4. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
+
+Example output:
+{
+  "analysis_name": "Federal Reserve Communication Evolution",
+  "change_type": "Increased dovish language and forward guidance clarity",
+  "article_id": "${article_id}",
+  "quotes": [
+    "The Committee will continue to monitor the implications of incoming information for the economic outlook.",
+    "The Committee is prepared to adjust the stance of monetary policy as appropriate if risks emerge that could impede the attainment of the Committee's goals.",
+    "The Committee expects to maintain this target range until labor market conditions have reached levels consistent with the Committee's assessments."
+  ],
+  "change_description": "This document shows a notable shift toward more explicit forward guidance compared to earlier communications. The language has become more specific about conditions for policy changes, moving away from general statements to concrete economic indicators.",
+  "comparison_context": "Previous documents used more general language about 'monitoring conditions' while this document provides specific criteria and expectations, indicating a strategic shift toward greater transparency in monetary policy communication."
+}
+
+Article:
+${article}
+
+Question: ${question}
+${intent ? `Intent: ${intent}` : ''}
+${timestamp ? `Document Timestamp: ${timestamp}` : ''}
+
+Historical Analysis Context: 
+${historicalAnalysis}
+
+Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
+`;
+
+    const response = await callReasoningModel(systemPrompt, userPrompt, '[CHANGE OF STATEMENT WORKER]');
+    
+    // Try to parse the output as JSON
+    let output: any = {};
+    let changeSummary = '';
+    
+    if (!response.success) {
+      output = { error: response.error || 'Failed to get response from OpenAI', raw: response.text };
+    } else {
+      try {
+        const jsonText = extractJsonFromResponse(response.text);
+        console.log('[CHANGE OF STATEMENT WORKER] Extracted JSON text:', jsonText);
+        
+        output = JSON.parse(jsonText);
+        console.log('[CHANGE OF STATEMENT WORKER] Parsed JSON output:', output);
+        
+        if (output.analysis_name && output.change_type) {
+          changeSummary = `${output.analysis_name}: ${output.change_type}`;
+        }
+      } catch (e) {
+        console.error('[CHANGE OF STATEMENT WORKER] Error parsing JSON:', e);
+        output = { error: 'Failed to parse OpenAI output as JSON', raw: response.text };
+      }
+    }
+    
+    // Add timestamp to output if available
+    if (timestamp) {
+      output.timestamp = timestamp;
+    }
+    
+    return { ...output, changeSummary };
+  }
 } 
