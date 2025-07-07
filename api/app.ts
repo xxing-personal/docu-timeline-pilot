@@ -6,7 +6,7 @@ import fsPromises from 'fs/promises';
 import path from 'path';
 import cors from 'cors';
 import { PDFQueueService } from './services/pdfQueueService';
-import { PDFProcessor } from './services/pdfProcessor';
+import { PdfProcessor } from './services/pdfProcessor';
 import { DatabaseService } from './services/databaseService';
 import { ChatService } from './services/chatService';
 import { IndicesDatabaseService } from './services/indicesDatabaseService';
@@ -19,9 +19,9 @@ app.use(express.json());
 
 // Initialize services
 const databaseService = new DatabaseService();
-const pdfProcessor = new PDFProcessor();
+const pdfProcessor = new PdfProcessor();
 const queueService = new PDFQueueService(pdfProcessor, databaseService);
-const chatService = new ChatService(databaseService);
+const chatService = new ChatService();
 const indicesDatabaseService = new IndicesDatabaseService();
 
 // Ensure uploads directory exists
@@ -654,19 +654,20 @@ app.post('/tasks/:taskId/edit-score', async (req, res) => {
 // Chat endpoint
 app.post('/chat', async (req, res) => {
   try {
-    const { message, mentions, sessionId } = req.body as { message: string; mentions: string[]; sessionId?: string };
+    const { message, sessionId } = req.body as { 
+      message: string; 
+      sessionId?: string 
+    };
     
     if (!message || typeof message !== 'string') {
       res.status(400).json({ error: 'message is required and must be a string' });
       return;
     }
     
-    if (!mentions || !Array.isArray(mentions)) {
-      res.status(400).json({ error: 'mentions is required and must be an array' });
-      return;
-    }
+    // Use provided sessionId or create a new one
+    const actualSessionId = sessionId || await chatService.createSession();
     
-    const response = await chatService.processChat({ message, mentions, sessionId });
+    const response = await chatService.processMessage(message, actualSessionId);
     
     res.json(response);
   } catch (error) {
@@ -675,87 +676,28 @@ app.post('/chat', async (req, res) => {
   }
 });
 
-// Chat session management endpoints
-app.get('/chat/sessions', async (req, res) => {
-  try {
-    const sessions = await chatService.getAllSessions();
-    res.json(sessions);
-  } catch (error) {
-    console.error('Get sessions error:', error);
-    res.status(500).json({ error: 'Failed to get chat sessions' });
-  }
-});
-
+// Create a new chat session
 app.post('/chat/sessions', async (req, res) => {
   try {
-    const { name } = req.body as { name: string };
-    
-    if (!name || typeof name !== 'string') {
-      res.status(400).json({ error: 'name is required and must be a string' });
-      return;
-    }
-    
-    const session = await chatService.createSession(name);
-    res.json(session);
+    const sessionId = await chatService.createSession();
+    res.json({ sessionId });
   } catch (error) {
     console.error('Create session error:', error);
     res.status(500).json({ error: 'Failed to create chat session' });
   }
 });
 
-app.get('/chat/sessions/:sessionId', async (req, res) => {
-  try {
-    const sessionId = req.params.sessionId;
-    const session = await chatService.getSession(sessionId);
-    
-    if (!session) {
-      res.status(404).json({ error: 'Session not found' });
-      return;
-    }
-    
-    res.json(session);
-  } catch (error) {
-    console.error('Get session error:', error);
-    res.status(500).json({ error: 'Failed to get chat session' });
-  }
-});
-
+// Get message history for a session
 app.get('/chat/sessions/:sessionId/messages', async (req, res) => {
   try {
     const sessionId = req.params.sessionId;
     const limit = parseInt(req.query.limit as string) || 50;
     
-    const messages = await chatService.getChatHistory(sessionId, limit);
+    const messages = await chatService.getMessageHistory(sessionId, limit);
     res.json(messages);
   } catch (error) {
     console.error('Get session messages error:', error);
     res.status(500).json({ error: 'Failed to get session messages' });
-  }
-});
-
-app.delete('/chat/sessions/:sessionId', async (req, res) => {
-  try {
-    const sessionId = req.params.sessionId;
-    const success = await chatService.deleteSession(sessionId);
-    
-    if (success) {
-      res.json({ message: 'Session deleted successfully' });
-    } else {
-      res.status(404).json({ error: 'Session not found' });
-    }
-  } catch (error) {
-    console.error('Delete session error:', error);
-    res.status(500).json({ error: 'Failed to delete chat session' });
-  }
-});
-
-app.get('/chat/statistics', async (req, res) => {
-  try {
-    const statistics = await chatService.getChatStatistics();
-    res.json(statistics);
-  } catch (error) {
-    console.error('Get chat statistics error:', error);
-    res.status(500).json({ error: 'Failed to get chat statistics' });
   }
 });
 
