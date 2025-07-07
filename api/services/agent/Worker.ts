@@ -69,37 +69,42 @@ export class ComparisonWorker extends Worker {
     const intent = taskPayload.intent || '';
     const timestamp = taskPayload.timestamp;
 
-    const systemPrompt = 'You are a helpful assistant for document analysis.';
+    const systemPrompt = 'You are a helpful assistant for document analysis. You are good at quantitative analysis and when you quantify values, you should alwaysrounded to two decimal places ';
     
     const userPrompt = `
-You are given an article and some historical scores context.
+You are given an article and you need to create a score based on users' inquery and intent. 
 
-1. Create a scoring index based on the user question, referring to the article. Take into account the historical scores context if relevant. Be consistent with historical scoring patterns but allow for changes over time.
-2. Extract several pieces of quotes from the article that support your score. Cite the original sentences.
-3. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
+## Steps
+1. First read all historical generation if there is any. You need to take a look at quotes (cited from the doc), rational (how this score is generated), and try to understand how this score is generated
+2. Sencondly you need to read the current artical. Referring to the historical generation, give a good score. Be consistent with historical scoring patterns but allow for changes over time. Pleaes do not hesitate to give score out side historical range --  it is really normal.
+3. Besides the score, extract several pieces of quotes from the article that support your score. Cite the original sentences. Also put down your rational for the score.
+
+## Output format
+The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
 
 Example output:
 {
   "score_name": "Inflation Sentiment Index",
-  "score_value": 0.7,
+  "score_value": 0.7342,
   "article_id": "${article_id}",
   "quotes": [
     "Inflation remained elevated.",
     "Participants agreed that inflation was unacceptably high and noted that the data indicated that declines in inflation had been slower than they had expected.",
     "Participants generally noted that economic activity had continued to expand at a modest pace but there were some signs that supply and demand in the labor market were coming into better balance."
   ],
-  "rational": "The score of 0.7 reflects a moderately high concern about inflation, consistent with the language used in the document. This score is slightly higher than the previous month due to the explicit mention of elevated inflation levels and slower-than-expected declines."
+  "rational": "The score of 0.7342 reflects a moderately high concern about inflation, consistent with the language used in the document. This score is slightly higher than the previous month due to the explicit mention of elevated inflation levels and slower-than-expected declines."
 }
 
 Article:
-${article}
-
-Question: ${question}
-${intent ? `Intent: ${intent}` : ''}
 ${timestamp ? `Document Timestamp: ${timestamp}` : ''}
 
+${article}
+
+User inquery: ${question}
+${intent ? `Intent: ${intent}` : ''}
+
 Historical Scores: 
-${historicalScores}
+${historicalScores? 'historical Generation: \n': ''}
 
 Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
 `;
