@@ -9,12 +9,14 @@ import path from 'path';
 export class IndicesAgentQueue extends AgentQueue {
   private name: string;
   private intent: string;
+  private indexName: string;
   private dbService: DatabaseService;
 
   constructor(memory: Memory) {
     super(memory);
     this.name = '';
     this.intent = '';
+    this.indexName = '';
     this.dbService = new DatabaseService();
   }
 
@@ -32,11 +34,13 @@ User Query: "${userQuery}"
 Please provide:
 1. A clear analysis of what the users' intent. 
 2. A concise, descriptive name for this indices creation task (max 50 characters)
+3. A consistent index name that will be used for ALL documents analyzed in this task (max 40 characters, descriptive but concise)
 
 Output as JSON (do not wrap in markdown code blocks):
 {
   "intent": "brief analysis of what user wants to measure",
-  "taskName": "concise task name"
+  "taskName": "concise task name", 
+  "indexName": "consistent index name for all documents"
 }
 `;
 
@@ -53,25 +57,29 @@ Output as JSON (do not wrap in markdown code blocks):
         
         this.name = analysis.taskName || `Indices: ${userQuery.substring(0, 30)}...`;
         this.intent = analysis.intent || '';
+        this.indexName = analysis.indexName || this.name;
         
         // Add task info to memory (without intent since it's in prompt)
-        const taskMemory = `\n--- TASK INITIATION ---\nTask Name: ${this.name}\nUser Query: ${userQuery}\n--- END INITIATION ---\n`;
+        const taskMemory = `\n--- TASK INITIATION ---\nTask Name: ${this.name}\nIndex Name: ${this.indexName}\nUser Query: ${userQuery}\n--- END INITIATION ---\n`;
         console.log(`[INDICES AGENT] Adding to memory during initiation:`);
         console.log(`[INDICES AGENT] Task memory:`, taskMemory);
         console.log(`[INDICES AGENT] --- End Task Memory ---`);
         await this.getMemory().add(taskMemory);
         
         console.log(`[INDICES AGENT] Task named: ${this.name}`);
+        console.log(`[INDICES AGENT] Index name: ${this.indexName}`);
         console.log(`[INDICES AGENT] Intent: ${this.intent}`);
       } catch (error) {
         console.error('[INDICES AGENT QUEUE] Error parsing JSON:', error);
         this.name = `Indices: ${userQuery.substring(0, 30)}...`;
         this.intent = 'Unable to analyze intent - JSON parsing error';
+        this.indexName = this.name;
       }
     } else {
       console.warn('[INDICES AGENT QUEUE] Failed to get response from OpenAI:', response.error);
       this.name = `Indices: ${userQuery.substring(0, 30)}...`;
       this.intent = 'Unable to analyze intent - API error';
+      this.indexName = this.name;
     }
   }
 
@@ -100,6 +108,7 @@ Output as JSON (do not wrap in markdown code blocks):
             article_id: pdf.id,
             question: userQuery,
             intent: this.intent,
+            indexName: this.indexName,
             filename: pdf.filename,
             extractedTextPath: pdf.result!.extractedTextPath,
             timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp
@@ -175,5 +184,9 @@ Output as JSON (do not wrap in markdown code blocks):
 
   getName(): string {
     return this.name;
+  }
+
+  getIndexName(): string {
+    return this.indexName;
   }
 } 

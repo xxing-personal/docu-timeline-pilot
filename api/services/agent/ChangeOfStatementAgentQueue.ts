@@ -9,12 +9,14 @@ import path from 'path';
 export class ChangeOfStatementAgentQueue extends AgentQueue {
   private name: string;
   private intent: string;
+  private analysisName: string; // Consistent analysis name for all documents
   private dbService: DatabaseService;
 
   constructor(memory: Memory) {
     super(memory);
     this.name = '';
     this.intent = '';
+    this.analysisName = '';
     this.dbService = new DatabaseService();
   }
 
@@ -32,11 +34,13 @@ User Query: "${userQuery}"
 Please provide:
 1. A clear analysis of what changes in statements/language the user wants to track.
 2. A concise, descriptive name for this statement change analysis task (max 50 characters)
+3. A consistent analysis name that will be used for ALL documents analyzed in this task (max 40 characters, descriptive but concise)
 
 Output as JSON (do not wrap in markdown code blocks):
 {
   "intent": "brief analysis of what statement changes to track",
-  "taskName": "concise task name"
+  "taskName": "concise task name",
+  "analysisName": "consistent analysis name for all documents"
 }
 `;
 
@@ -53,28 +57,32 @@ Output as JSON (do not wrap in markdown code blocks):
         
         this.name = analysis.taskName || `Statement Changes: ${userQuery.substring(0, 30)}...`;
         this.intent = analysis.intent || '';
+        this.analysisName = analysis.analysisName || this.name;
         
         // Initialize the queue with the analyzed name and type
         await this.initializeQueue(this.name, 'change_statement');
         
         // Add task info to memory (without intent since it's in prompt)
-        const taskMemory = `\n--- TASK INITIATION ---\nTask Name: ${this.name}\nUser Query: ${userQuery}\n--- END INITIATION ---\n`;
+        const taskMemory = `\n--- TASK INITIATION ---\nTask Name: ${this.name}\nAnalysis Name: ${this.analysisName}\nUser Query: ${userQuery}\n--- END INITIATION ---\n`;
         console.log(`[CHANGE OF STATEMENT AGENT] Adding to memory during initiation:`);
         console.log(`[CHANGE OF STATEMENT AGENT] Task memory:`, taskMemory);
         console.log(`[CHANGE OF STATEMENT AGENT] --- End Task Memory ---`);
         await this.getMemory().add(taskMemory);
         
         console.log(`[CHANGE OF STATEMENT AGENT] Task named: ${this.name}`);
+        console.log(`[CHANGE OF STATEMENT AGENT] Analysis name: ${this.analysisName}`);
         console.log(`[CHANGE OF STATEMENT AGENT] Intent: ${this.intent}`);
       } catch (error) {
         console.error('[CHANGE OF STATEMENT AGENT QUEUE] Error parsing JSON:', error);
         this.name = `Statement Changes: ${userQuery.substring(0, 30)}...`;
         this.intent = 'Unable to analyze intent - JSON parsing error';
+        this.analysisName = this.name;
       }
     } else {
       console.warn('[CHANGE OF STATEMENT AGENT QUEUE] Failed to get response from OpenAI:', response.error);
       this.name = `Statement Changes: ${userQuery.substring(0, 30)}...`;
       this.intent = 'Unable to analyze intent - API error';
+      this.analysisName = this.name;
     }
   }
 
@@ -84,6 +92,10 @@ Output as JSON (do not wrap in markdown code blocks):
 
   getIntent(): string {
     return this.intent;
+  }
+
+  getAnalysisName(): string {
+    return this.analysisName;
   }
 
   async addStatementTask(filename: string, extractedTextPath: string, articleId: string, timestamp?: string): Promise<void> {
@@ -100,6 +112,7 @@ Output as JSON (do not wrap in markdown code blocks):
         article_id: articleId,
         question: `Analyze changes in statements, language, or messaging. Focus on: ${this.intent}`,
         intent: this.intent,
+        analysisName: this.analysisName,
         timestamp,
         taskId
       },
