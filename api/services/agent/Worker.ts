@@ -83,7 +83,6 @@ You are given an article and you need to create a score based on users' inquery 
 ## Output format
 The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
 
-${indexName ? `
 IMPORTANT: You must use "${indexName}" as the score_name. Do not generate a different name.
 
 Example output:
@@ -97,19 +96,7 @@ Example output:
     "Participants generally noted that economic activity had continued to expand at a modest pace but there were some signs that supply and demand in the labor market were coming into better balance."
   ],
   "rational": "The score of 0.7342 reflects a moderately high concern about inflation, consistent with the language used in the document. This score is slightly higher than the previous month due to the explicit mention of elevated inflation levels and slower-than-expected declines."
-}` : `
-Example output:
-{
-  "score_name": "Inflation Sentiment Index",
-  "score_value": 0.7342,
-  "article_id": "${article_id}",
-  "quotes": [
-    "Inflation remained elevated.",
-    "Participants agreed that inflation was unacceptably high and noted that the data indicated that declines in inflation had been slower than they had expected.",
-    "Participants generally noted that economic activity had continued to expand at a modest pace but there were some signs that supply and demand in the labor market were coming into better balance."
-  ],
-  "rational": "The score of 0.7342 reflects a moderately high concern about inflation, consistent with the language used in the document. This score is slightly higher than the previous month due to the explicit mention of elevated inflation levels and slower-than-expected declines."
-}`}
+}
 
 Article:
 ${timestamp ? `Document Timestamp: ${timestamp}` : ''}
@@ -141,11 +128,9 @@ Output only the JSON object as described above. Do not wrap it in markdown code 
         output = JSON.parse(jsonText);
         console.log('[COMPARISON WORKER] Parsed JSON output:', output);
         
-        // Override the score_name with the provided indexName if available
-        if (indexName) {
-          output.score_name = indexName;
-          console.log(`[COMPARISON WORKER] Using provided index name: ${indexName}`);
-        }
+        // Ensure the score_name matches the provided indexName
+        output.score_name = indexName;
+        console.log(`[COMPARISON WORKER] Using provided index name: ${indexName}`);
         
         if (output.score_name && output.score_value !== undefined) {
           scoreSummary = `${output.score_name}: ${output.score_value}`;
@@ -452,7 +437,6 @@ You are analyzing a document to identify changes in statements, language, tone, 
 3. Extract specific quotes that demonstrate these changes or continuities.
 4. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
 
-${analysisName ? `
 IMPORTANT: You must use "${analysisName}" as the analysis_name. Do not generate a different name.
 
 Example output:
@@ -467,20 +451,7 @@ Example output:
   ],
   "change_description": "This document shows a notable shift toward more explicit forward guidance compared to earlier communications. The language has become more specific about conditions for policy changes, moving away from general statements to concrete economic indicators.",
   "comparison_context": "Previous documents used more general language about 'monitoring conditions' while this document provides specific criteria and expectations, indicating a strategic shift toward greater transparency in monetary policy communication."
-}` : `
-Example output:
-{
-  "analysis_name": "Federal Reserve Communication Evolution",
-  "change_type": "Increased dovish language and forward guidance clarity",
-  "article_id": "${article_id}",
-  "quotes": [
-    "The Committee will continue to monitor the implications of incoming information for the economic outlook.",
-    "The Committee is prepared to adjust the stance of monetary policy as appropriate if risks emerge that could impede the attainment of the Committee's goals.",
-    "The Committee expects to maintain this target range until labor market conditions have reached levels consistent with the Committee's assessments."
-  ],
-  "change_description": "This document shows a notable shift toward more explicit forward guidance compared to earlier communications. The language has become more specific about conditions for policy changes, moving away from general statements to concrete economic indicators.",
-  "comparison_context": "Previous documents used more general language about 'monitoring conditions' while this document provides specific criteria and expectations, indicating a strategic shift toward greater transparency in monetary policy communication."
-}`}
+}
 
 Article:
 ${article}
@@ -508,11 +479,9 @@ Output only the JSON object as described above. Do not wrap it in markdown code 
       const output = JSON.parse(jsonText);
       console.log('[CHANGE OF STATEMENT WORKER] Parsed JSON output:', output);
       
-      // Override the analysis_name with the provided analysisName if available
-      if (analysisName) {
-        output.analysis_name = analysisName;
-        console.log(`[CHANGE OF STATEMENT WORKER] Using provided analysis name: ${analysisName}`);
-      }
+      // Ensure the analysis_name matches the provided analysisName
+      output.analysis_name = analysisName;
+      console.log(`[CHANGE OF STATEMENT WORKER] Using provided analysis name: ${analysisName}`);
       
       return output;
     } catch (error) {
