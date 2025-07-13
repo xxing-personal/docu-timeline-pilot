@@ -98,9 +98,38 @@ Output as JSON (do not wrap in markdown code blocks):
 
     console.log(`[INDICES AGENT] Found ${pdfTasks.length} PDF documents to process`);
 
+    // Sort documents chronologically by timestamp
+    const sortedTasks = pdfTasks.sort((a, b) => {
+      const timeA = a.result?.metadata?.inferredTimestamp || a.TimeStamp || a.createdAt;
+      const timeB = b.result?.metadata?.inferredTimestamp || b.TimeStamp || b.createdAt;
+      return new Date(timeA).getTime() - new Date(timeB).getTime();
+    });
+
+    console.log(`[INDICES AGENT] Processing ${sortedTasks.length} documents in chronological order`);
+
     // Create a ComparisonWorker task for each PDF
-    for (const pdf of pdfTasks) {
+    for (let i = 0; i < sortedTasks.length; i++) {
+      const pdf = sortedTasks[i];
+      const previousPdf = i > 0 ? sortedTasks[i - 1] : null;
+
       try {
+        // Load previous article content if available
+        let previousArticle = '';
+        if (previousPdf) {
+          try {
+            const fs = require('fs/promises');
+            const path = require('path');
+            const fullPath = path.isAbsolute(previousPdf.result!.extractedTextPath) 
+              ? previousPdf.result!.extractedTextPath 
+              : path.join(process.cwd(), previousPdf.result!.extractedTextPath);
+            previousArticle = await fs.readFile(fullPath, 'utf-8');
+            console.log(`[INDICES AGENT] Loaded previous article from: ${previousPdf.filename}`);
+          } catch (error) {
+            console.error(`[INDICES AGENT] Failed to load previous article from ${previousPdf.filename}:`, error);
+            previousArticle = 'Previous article could not be loaded.';
+          }
+        }
+
         const task: AgentTask = {
           id: `indices-comparison-${pdf.id}`,
           type: 'comparison',
@@ -111,13 +140,16 @@ Output as JSON (do not wrap in markdown code blocks):
             indexName: this.indexName,
             filename: pdf.filename,
             extractedTextPath: pdf.result!.extractedTextPath,
-            timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp
+            timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp,
+            previousArticle: previousArticle,
+            previousFilename: previousPdf?.filename,
+            previousTimestamp: previousPdf ? (previousPdf.result?.metadata?.inferredTimestamp || previousPdf.TimeStamp) : undefined
           },
           status: 'pending',
         };
 
         await this.addTask(task);
-        console.log(`[INDICES AGENT] Added comparison task for: ${pdf.filename}${task.payload.timestamp ? ` with timestamp: ${task.payload.timestamp}` : ''}`);
+        console.log(`[INDICES AGENT] Added comparison task for: ${pdf.filename}${task.payload.timestamp ? ` with timestamp: ${task.payload.timestamp}` : ''}${previousPdf ? ` (previous: ${previousPdf.filename})` : ' (first document)'}`);
       } catch (error) {
         console.error(`[INDICES AGENT] Error adding task for ${pdf.filename}:`, error);
       }

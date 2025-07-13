@@ -90,9 +90,38 @@ Output as JSON (do not wrap in markdown code blocks):
 
     console.log(`[DEEP RESEARCH AGENT] Found ${pdfTasks.length} PDF documents to process`);
 
+    // Sort documents chronologically by timestamp
+    const sortedTasks = pdfTasks.sort((a, b) => {
+      const timeA = a.result?.metadata?.inferredTimestamp || a.TimeStamp || a.createdAt;
+      const timeB = b.result?.metadata?.inferredTimestamp || b.TimeStamp || b.createdAt;
+      return new Date(timeA).getTime() - new Date(timeB).getTime();
+    });
+
+    console.log(`[DEEP RESEARCH AGENT] Processing ${sortedTasks.length} documents in chronological order`);
+
     // Create a ResearchWorker task for each PDF
-    for (const pdf of pdfTasks) {
+    for (let i = 0; i < sortedTasks.length; i++) {
+      const pdf = sortedTasks[i];
+      const previousPdf = i > 0 ? sortedTasks[i - 1] : null;
+
       try {
+        // Load previous article content if available
+        let previousArticle = '';
+        if (previousPdf) {
+          try {
+            const fs = require('fs/promises');
+            const path = require('path');
+            const fullPath = path.isAbsolute(previousPdf.result!.extractedTextPath) 
+              ? previousPdf.result!.extractedTextPath 
+              : path.join(process.cwd(), previousPdf.result!.extractedTextPath);
+            previousArticle = await fs.readFile(fullPath, 'utf-8');
+            console.log(`[DEEP RESEARCH AGENT] Loaded previous article from: ${previousPdf.filename}`);
+          } catch (error) {
+            console.error(`[DEEP RESEARCH AGENT] Failed to load previous article from ${previousPdf.filename}:`, error);
+            previousArticle = 'Previous article could not be loaded.';
+          }
+        }
+
         const task: AgentTask = {
           id: `research-${pdf.id}`,
           type: 'research',
@@ -102,21 +131,24 @@ Output as JSON (do not wrap in markdown code blocks):
             intent: this.intent,
             filename: pdf.filename,
             extractedTextPath: pdf.result!.extractedTextPath,
-            timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp
+            timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp,
+            previousArticle: previousArticle,
+            previousFilename: previousPdf?.filename,
+            previousTimestamp: previousPdf ? (previousPdf.result?.metadata?.inferredTimestamp || previousPdf.TimeStamp) : undefined
           },
           status: 'pending',
         };
 
         await this.addTask(task);
-        console.log(`[DEEP RESEARCH AGENT] Added research task for: ${pdf.filename}${task.payload.timestamp ? ` with timestamp: ${task.payload.timestamp}` : ''}`);
+        console.log(`[DEEP RESEARCH AGENT] Added research task for: ${pdf.filename}${task.payload.timestamp ? ` with timestamp: ${task.payload.timestamp}` : ''}${previousPdf ? ` (previous: ${previousPdf.filename})` : ' (first document)'}`);
       } catch (error) {
         console.error(`[DEEP RESEARCH AGENT] Error adding task for ${pdf.filename}:`, error);
       }
     }
 
     // Add a final WritingWorker task with timestamp information
-    const articleIdMap = Object.fromEntries(pdfTasks.map(pdf => [pdf.id, pdf.filename]));
-    const timestampMap = Object.fromEntries(pdfTasks.map(pdf => [pdf.id, pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp]));
+    const articleIdMap = Object.fromEntries(sortedTasks.map(pdf => [pdf.id, pdf.filename]));
+    const timestampMap = Object.fromEntries(sortedTasks.map(pdf => [pdf.id, pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp]));
     const writingTask: AgentTask = {
       id: `writing-${Date.now()}`,
       type: 'writing',
@@ -129,7 +161,7 @@ Output as JSON (do not wrap in markdown code blocks):
       status: 'pending',
     };
     await this.addTask(writingTask);
-    console.log(`[DEEP RESEARCH AGENT] Added writing task for final article with timestamp information for ${pdfTasks.length} documents`);
+    console.log(`[DEEP RESEARCH AGENT] Added writing task for final article with timestamp information for ${sortedTasks.length} documents`);
   }
 
   async process(): Promise<void> {

@@ -98,7 +98,7 @@ Output as JSON (do not wrap in markdown code blocks):
     return this.analysisName;
   }
 
-  async addStatementTask(filename: string, extractedTextPath: string, articleId: string, timestamp?: string): Promise<void> {
+  async addStatementTask(filename: string, extractedTextPath: string, articleId: string, timestamp?: string, previousArticle?: string, previousFilename?: string, previousTimestamp?: string): Promise<void> {
     console.log(`[CHANGE OF STATEMENT AGENT] Adding task for file: ${filename}`);
     
     const taskId = `change_statement_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -114,7 +114,10 @@ Output as JSON (do not wrap in markdown code blocks):
         intent: this.intent,
         analysisName: this.analysisName,
         timestamp,
-        taskId
+        taskId,
+        previousArticle: previousArticle || '',
+        previousFilename: previousFilename,
+        previousTimestamp: previousTimestamp
       },
       status: 'pending',
       metadata: {
@@ -125,7 +128,7 @@ Output as JSON (do not wrap in markdown code blocks):
     };
 
     await this.addTask(task);
-    console.log(`[CHANGE OF STATEMENT AGENT] Task ${taskId} added to queue for ${filename}`);
+    console.log(`[CHANGE OF STATEMENT AGENT] Task ${taskId} added to queue for ${filename}${previousFilename ? ` (previous: ${previousFilename})` : ' (first document)'}`);
   }
 
   async processTask(task: AgentTask): Promise<any> {
@@ -164,16 +167,41 @@ Output as JSON (do not wrap in markdown code blocks):
       
       console.log(`[CHANGE OF STATEMENT AGENT] Processing ${sortedTasks.length} documents in chronological order`);
       
-      for (const task of sortedTasks) {
+      for (let i = 0; i < sortedTasks.length; i++) {
+        const task = sortedTasks[i];
+        const previousTask = i > 0 ? sortedTasks[i - 1] : null;
+
         try {
           console.log(`[CHANGE OF STATEMENT AGENT] Adding document: ${task.filename}`);
           
+          // Load previous article content if available
+          let previousArticle = '';
+          if (previousTask) {
+            try {
+              const fs = require('fs/promises');
+              const path = require('path');
+              const fullPath = path.isAbsolute(previousTask.result!.extractedTextPath) 
+                ? previousTask.result!.extractedTextPath 
+                : path.join(process.cwd(), previousTask.result!.extractedTextPath);
+              previousArticle = await fs.readFile(fullPath, 'utf-8');
+              console.log(`[CHANGE OF STATEMENT AGENT] Loaded previous article from: ${previousTask.filename}`);
+            } catch (error) {
+              console.error(`[CHANGE OF STATEMENT AGENT] Failed to load previous article from ${previousTask.filename}:`, error);
+              previousArticle = 'Previous article could not be loaded.';
+            }
+          }
+          
           const timestamp = task.result?.metadata?.inferredTimestamp || task.TimeStamp || task.createdAt;
+          const previousTimestamp = previousTask ? (previousTask.result?.metadata?.inferredTimestamp || previousTask.TimeStamp || previousTask.createdAt) : undefined;
+          
           await this.addStatementTask(
             task.filename, 
             task.result!.extractedTextPath, 
             task.id,
-            timestamp
+            timestamp,
+            previousArticle,
+            previousTask?.filename,
+            previousTimestamp
           );
         } catch (error) {
           console.error(`[CHANGE OF STATEMENT AGENT] Error adding task for ${task.filename}:`, error);

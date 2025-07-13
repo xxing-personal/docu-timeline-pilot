@@ -69,16 +69,24 @@ export class ComparisonWorker extends Worker {
     const intent = taskPayload.intent || '';
     const indexName = taskPayload.indexName || '';
     const timestamp = taskPayload.timestamp;
+    const previousArticle = taskPayload.previousArticle || '';
+    const previousFilename = taskPayload.previousFilename;
+    const previousTimestamp = taskPayload.previousTimestamp;
 
     const systemPrompt = 'You are a helpful assistant for document analysis. You are good at quantitative analysis and when you quantify values, you should alwaysrounded to two decimal places ';
     
     const userPrompt = `
-You are given an article and you need to create a score based on users' inquery and intent. 
+You are given an article and you need to create a score. you score should reflect the users' inquiry and intent. 
+
+## background
+This artical is part of a time series of artical that talking about on a similar or relatead topics. We have had similar agent to review the previous artical. From that reading, they quoted some sentenses from the artical, write down the rational and give a score based on that artical. Now it is your turn to conduct this quantify process.
 
 ## Steps
 1. First read all historical generation if there is any. You need to take a look at quotes (cited from the doc), rational (how this score is generated), and try to understand how this score is generated
-2. Sencondly you need to read the current artical. Referring to the historical generation, give a good score. Be consistent with historical scoring patterns but allow for changes over time. Pleaes do not hesitate to give score out side historical range --  it is really normal.
-3. Besides the score, extract several pieces of quotes from the article that support your score. Cite the original sentences. Also put down your rational for the score.
+2. Sencondly you need to read the current artical and previous artical, spot the differences for the statement related to user inquiry, and understand the change of tones or statement. 
+3. based on your understanding of previous steps, 
+give a good score. Be consistent with historical scoring patterns and generation logic but allow for value changes over time. Pleaes do not hesitate to give score out side historical range --  it is really normal.
+3. Besides the score, extract several pieces of quotes from the article that support your score. Cite the original sentences. Also put down your rational for the score for future generation.
 
 ## Output format
 The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
@@ -106,8 +114,18 @@ ${article}
 User inquery: ${question}
 ${intent ? `Intent: ${intent}` : ''}
 
-Historical Scores: 
+Historical Generation: 
 ${historicalScores? 'historical Generation: \n': ''}
+
+${previousArticle && previousFilename ? `
+Previous Article:
+${previousTimestamp ? `Previous Document Timestamp: ${previousTimestamp}` : ''}
+Previous Document: ${previousFilename}
+
+${previousArticle}
+
+Please consider the previous article when analyzing the current document for trends, changes, or comparisons.
+` : 'Previous Article: No previous document available for comparison.'}
 
 Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
 `;
@@ -186,11 +204,17 @@ export class ResearchWorker extends Worker {
     const question = taskPayload.question || '';
     const intent = taskPayload.intent || '';
     const timestamp = taskPayload.timestamp;
+    const previousArticle = taskPayload.previousArticle || '';
+    const previousFilename = taskPayload.previousFilename;
+    const previousTimestamp = taskPayload.previousTimestamp;
     
     const systemPrompt = 'You are a helpful assistant for research and summarization.';
     
     const userPrompt = `
-You are given an article and some historical research context.
+You are given an article and user inquiries, and you are reading documents to answer user's question or fullfill the inquiries.
+
+## Background
+The user has provided a research question and you need to analyze documents in chronological order to provide insights and track developments over time.
 
 1. Write a small paragraph to answer the question, referring to the article. Take into account the historical research context if relevant. Be concise and informative. Try to get as much incremental information as possible from the article compared to historical research context.
 2. Extract several pieces of quotes from the article that support your answer. Cite the original sentences.
@@ -209,14 +233,25 @@ Example output:
 }
 
 Article:
+${timestamp ? `Document Timestamp: ${timestamp}` : ''}
+
 ${article}
 
 Question: ${question}
 ${intent ? `Intent: ${intent}` : ''}
-${timestamp ? `Document Timestamp: ${timestamp}` : ''}
 
 Historical Research Context: 
 ${historicalResearch}
+
+${previousArticle && previousFilename ? `
+Previous Article:
+${previousTimestamp ? `Previous Document Timestamp: ${previousTimestamp}` : ''}
+Previous Document: ${previousFilename}
+
+${previousArticle}
+
+Please compare the current article with the previous article to identify key developments, changes, or continuities in the research topic.
+` : 'Previous Article: No previous document available for comparison.'}
 
 Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
 `;
@@ -426,6 +461,9 @@ export class ChangeOfStatementWorker extends Worker {
     const intent = taskPayload.intent || '';
     const analysisName = taskPayload.analysisName || '';
     const timestamp = taskPayload.timestamp;
+    const previousArticle = taskPayload.previousArticle || '';
+    const previousFilename = taskPayload.previousFilename;
+    const previousTimestamp = taskPayload.previousTimestamp;
 
     const systemPrompt = 'You are a helpful assistant for analyzing changes in statements, language, tone, and messaging in documents.';
     
@@ -434,8 +472,9 @@ You are analyzing a document to identify changes in statements, language, tone, 
 
 1. Analyze the document for statements, language patterns, tone, and messaging related to the focus area.
 2. Compare with historical analysis to identify changes, evolution, or shifts in approach.
-3. Extract specific quotes that demonstrate these changes or continuities.
-4. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
+3. If a previous article is available, pay special attention to direct comparisons between the current and previous documents.
+4. Extract specific quotes that demonstrate these changes or continuities.
+5. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
 
 IMPORTANT: You must use "${analysisName}" as the analysis_name. Do not generate a different name.
 
@@ -454,14 +493,25 @@ Example output:
 }
 
 Article:
+${timestamp ? `Document Timestamp: ${timestamp}` : ''}
+
 ${article}
 
 Question: ${question}
 ${intent ? `Intent: ${intent}` : ''}
-${timestamp ? `Document Timestamp: ${timestamp}` : ''}
 
 Historical Analysis:
 ${historicalAnalysis || 'No previous analysis available.'}
+
+${previousArticle && previousFilename ? `
+Previous Article for Direct Comparison:
+${previousTimestamp ? `Previous Document Timestamp: ${previousTimestamp}` : ''}
+Previous Document: ${previousFilename}
+
+${previousArticle}
+
+Please analyze the current document in the context of this previous document, identifying specific changes in language, tone, statements, or messaging. Focus on how the approach, framing, or emphasis has evolved between these two documents.
+` : 'Previous Article: No previous document available for direct comparison.'}
 
 Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
 `;
