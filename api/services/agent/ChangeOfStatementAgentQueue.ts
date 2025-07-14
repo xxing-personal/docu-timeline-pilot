@@ -185,6 +185,7 @@ Output as JSON (do not wrap in markdown code blocks):
                 : path.join(process.cwd(), previousTask.result!.extractedTextPath);
               previousArticle = await fs.readFile(fullPath, 'utf-8');
               console.log(`[CHANGE OF STATEMENT AGENT] Loaded previous article from: ${previousTask.filename}`);
+              console.log(`[CHANGE OF STATEMENT AGENT] Previous article preview (first 200 chars): ${previousArticle.substring(0, 200)}${previousArticle.length > 200 ? '...' : ''}`);
             } catch (error) {
               console.error(`[CHANGE OF STATEMENT AGENT] Failed to load previous article from ${previousTask.filename}:`, error);
               previousArticle = 'Previous article could not be loaded.';

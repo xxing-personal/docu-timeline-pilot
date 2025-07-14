@@ -116,6 +116,7 @@ Output as JSON (do not wrap in markdown code blocks):
               : path.join(process.cwd(), previousPdf.result!.extractedTextPath);
             previousArticle = await fs.readFile(fullPath, 'utf-8');
             console.log(`[DEEP RESEARCH AGENT] Loaded previous article from: ${previousPdf.filename}`);
+            console.log(`[DEEP RESEARCH AGENT] Previous article preview (first 200 chars): ${previousArticle.substring(0, 200)}${previousArticle.length > 200 ? '...' : ''}`);
           } catch (error) {
             console.error(`[DEEP RESEARCH AGENT] Failed to load previous article from ${previousPdf.filename}:`, error);
             previousArticle = 'Previous article could not be loaded.';

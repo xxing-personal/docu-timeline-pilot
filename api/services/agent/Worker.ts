@@ -2,6 +2,7 @@ import { Memory } from './memory';
 import { MemoryDatabaseService } from './memoryDatabaseService';
 import { IndicesDatabaseService } from '../indicesDatabaseService';
 import { callReasoningModel, callWritingModel, extractJsonFromResponse } from '../openaiUtil';
+import { PromptManager } from '../promptManager';
 import OpenAI from 'openai';
 
 export abstract class Worker {
@@ -73,64 +74,31 @@ export class ComparisonWorker extends Worker {
     const previousFilename = taskPayload.previousFilename;
     const previousTimestamp = taskPayload.previousTimestamp;
 
-    const systemPrompt = 'You are a helpful assistant for document analysis. You are good at quantitative analysis and when you quantify values, you should alwaysrounded to two decimal places ';
-    
-    const userPrompt = `
-You are given an article and you need to create a score. you score should reflect the users' inquiry and intent. 
+    // Log previous article info for debugging
+    if (previousArticle && previousFilename) {
+      console.log(`[COMPARISON WORKER] Using previous article: ${previousFilename}`);
+      console.log(`[COMPARISON WORKER] Previous article preview: ${previousArticle.substring(0, 150)}${previousArticle.length > 150 ? '...' : ''}`);
+    } else {
+      console.log(`[COMPARISON WORKER] No previous article available for comparison`);
+    }
 
-## background
-This artical is part of a time series of artical that talking about on a similar or relatead topics. We have had similar agent to review the previous artical. From that reading, they quoted some sentenses from the artical, write down the rational and give a score based on that artical. Now it is your turn to conduct this quantify process.
+    // Get formatted prompts from PromptManager
+    const promptVariables = {
+      indexName,
+      articleId: article_id,
+      article,
+      timestamp,
+      question,
+      intent,
+      historicalScores,
+      previousArticle,
+      previousFilename,
+      previousTimestamp
+    };
 
-## Steps
-1. First read all historical generation if there is any. You need to take a look at quotes (cited from the doc), rational (how this score is generated), and try to understand how this score is generated
-2. Sencondly you need to read the current artical and previous artical, spot the differences for the statement related to user inquiry, and understand the change of tones or statement. 
-3. based on your understanding of previous steps, 
-give a good score. Be consistent with historical scoring patterns and generation logic but allow for value changes over time. Pleaes do not hesitate to give score out side historical range --  it is really normal.
-3. Besides the score, extract several pieces of quotes from the article that support your score. Cite the original sentences. Also put down your rational for the score for future generation.
+    const prompts = await PromptManager.getPrompt('workers', 'comparison', promptVariables);
 
-## Output format
-The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
-
-IMPORTANT: You must use "${indexName}" as the score_name. Do not generate a different name.
-
-Example output:
-{
-  "score_name": "${indexName}",
-  "score_value": 0.7342,
-  "article_id": "${article_id}",
-  "quotes": [
-    "Inflation remained elevated.",
-    "Participants agreed that inflation was unacceptably high and noted that the data indicated that declines in inflation had been slower than they had expected.",
-    "Participants generally noted that economic activity had continued to expand at a modest pace but there were some signs that supply and demand in the labor market were coming into better balance."
-  ],
-  "rational": "The score of 0.7342 reflects a moderately high concern about inflation, consistent with the language used in the document. This score is slightly higher than the previous month due to the explicit mention of elevated inflation levels and slower-than-expected declines."
-}
-
-Article:
-${timestamp ? `Document Timestamp: ${timestamp}` : ''}
-
-${article}
-
-User inquery: ${question}
-${intent ? `Intent: ${intent}` : ''}
-
-Historical Generation: 
-${historicalScores? 'historical Generation: \n': ''}
-
-${previousArticle && previousFilename ? `
-Previous Article:
-${previousTimestamp ? `Previous Document Timestamp: ${previousTimestamp}` : ''}
-Previous Document: ${previousFilename}
-
-${previousArticle}
-
-Please consider the previous article when analyzing the current document for trends, changes, or comparisons.
-` : 'Previous Article: No previous document available for comparison.'}
-
-Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
-`;
-
-    const response = await callReasoningModel(systemPrompt, userPrompt, '[COMPARISON WORKER]');
+    const response = await callReasoningModel(prompts.system, prompts.user, '[COMPARISON WORKER]');
     
     // Try to parse the output as JSON
     let output: any = {};
@@ -207,6 +175,14 @@ export class ResearchWorker extends Worker {
     const previousArticle = taskPayload.previousArticle || '';
     const previousFilename = taskPayload.previousFilename;
     const previousTimestamp = taskPayload.previousTimestamp;
+    
+    // Log previous article info for debugging
+    if (previousArticle && previousFilename) {
+      console.log(`[RESEARCH WORKER] Using previous article: ${previousFilename}`);
+      console.log(`[RESEARCH WORKER] Previous article preview: ${previousArticle.substring(0, 150)}${previousArticle.length > 150 ? '...' : ''}`);
+    } else {
+      console.log(`[RESEARCH WORKER] No previous article available for comparison`);
+    }
     
     const systemPrompt = 'You are a helpful assistant for research and summarization.';
     
@@ -464,6 +440,14 @@ export class ChangeOfStatementWorker extends Worker {
     const previousArticle = taskPayload.previousArticle || '';
     const previousFilename = taskPayload.previousFilename;
     const previousTimestamp = taskPayload.previousTimestamp;
+
+    // Log previous article info for debugging
+    if (previousArticle && previousFilename) {
+      console.log(`[CHANGE OF STATEMENT WORKER] Using previous article: ${previousFilename}`);
+      console.log(`[CHANGE OF STATEMENT WORKER] Previous article preview: ${previousArticle.substring(0, 150)}${previousArticle.length > 150 ? '...' : ''}`);
+    } else {
+      console.log(`[CHANGE OF STATEMENT WORKER] No previous article available for comparison`);
+    }
 
     const systemPrompt = 'You are a helpful assistant for analyzing changes in statements, language, tone, and messaging in documents.';
     

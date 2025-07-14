@@ -3,6 +3,7 @@ import { ComparisonWorker } from './Worker';
 import { Memory } from './memory';
 import { DatabaseService } from '../databaseService';
 import { callReasoningModel, extractJsonFromResponse } from '../openaiUtil';
+import { PromptManager } from '../promptManager';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -23,28 +24,9 @@ export class IndicesAgentQueue extends AgentQueue {
   async initiate(userQuery: string): Promise<void> {
     console.log(`[INDICES AGENT] Initiating with query: ${userQuery}`);
     
-    // Analyze user intent and generate task name using OpenAI
-    const systemPrompt = 'You are a helpful assistant for analyzing user intent for document analysis tasks.';
-    
-    const userPrompt = `
-You are analyzing a user query for an indices creation agent. The agent will analyze PDF documents and create scoring indices based on the user's question.
-
-User Query: "${userQuery}"
-
-Please provide:
-1. A clear analysis of what the users' intent. 
-2. A concise, descriptive name for this indices creation task (max 50 characters)
-3. A consistent index name that will be used for ALL documents analyzed in this task (max 40 characters, descriptive but concise)
-
-Output as JSON (do not wrap in markdown code blocks):
-{
-  "intent": "brief analysis of what user wants to measure",
-  "taskName": "concise task name", 
-  "indexName": "consistent index name for all documents"
-}
-`;
-
-    const response = await callReasoningModel(systemPrompt, userPrompt, '[INDICES AGENT QUEUE]');
+    // Analyze user intent and generate task name using PromptManager
+    const prompts = await PromptManager.getPrompt('intentAnalysis', 'indices', { userQuery });
+    const response = await callReasoningModel(prompts.system, prompts.user, '[INDICES AGENT QUEUE]');
     
     if (response.success) {
       try {
@@ -124,6 +106,7 @@ Output as JSON (do not wrap in markdown code blocks):
               : path.join(process.cwd(), previousPdf.result!.extractedTextPath);
             previousArticle = await fs.readFile(fullPath, 'utf-8');
             console.log(`[INDICES AGENT] Loaded previous article from: ${previousPdf.filename}`);
+            console.log(`[INDICES AGENT] Previous article preview (first 200 chars): ${previousArticle.substring(0, 200)}${previousArticle.length > 200 ? '...' : ''}`);
           } catch (error) {
             console.error(`[INDICES AGENT] Failed to load previous article from ${previousPdf.filename}:`, error);
             previousArticle = 'Previous article could not be loaded.';
