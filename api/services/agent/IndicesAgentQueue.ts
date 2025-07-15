@@ -1,5 +1,5 @@
 import { AgentQueue, AgentTask } from './agentQueue';
-import { ComparisonWorker } from './Worker';
+import { QuantifyWorker } from './Worker';
 import { Memory } from './memory';
 import { DatabaseService } from '../databaseService';
 import { callReasoningModel, extractJsonFromResponse } from '../ModelUtils';
@@ -89,7 +89,7 @@ export class IndicesAgentQueue extends AgentQueue {
 
     console.log(`[INDICES AGENT] Processing ${sortedTasks.length} documents in chronological order`);
 
-    // Create a ComparisonWorker task for each PDF
+    // Create a QuantifyWorker task for each PDF
     for (let i = 0; i < sortedTasks.length; i++) {
       const pdf = sortedTasks[i];
       const previousPdf = i > 0 ? sortedTasks[i - 1] : null;
@@ -114,8 +114,8 @@ export class IndicesAgentQueue extends AgentQueue {
         }
 
         const task: AgentTask = {
-          id: `indices-comparison-${pdf.id}`,
-          type: 'comparison',
+          id: `indices-quantify-${pdf.id}`,
+          type: 'quantify',
           payload: {
             article_id: pdf.id,
             question: userQuery,
@@ -132,7 +132,7 @@ export class IndicesAgentQueue extends AgentQueue {
         };
 
         await this.addTask(task);
-        console.log(`[INDICES AGENT] Added comparison task for: ${pdf.filename}${task.payload.timestamp ? ` with timestamp: ${task.payload.timestamp}` : ''}${previousPdf ? ` (previous: ${previousPdf.filename})` : ' (first document)'}`);
+        console.log(`[INDICES AGENT] Added quantify task for: ${pdf.filename}${task.payload.timestamp ? ` with timestamp: ${task.payload.timestamp}` : ''}${previousPdf ? ` (previous: ${previousPdf.filename})` : ' (first document)'}`);
       } catch (error) {
         console.error(`[INDICES AGENT] Error adding task for ${pdf.filename}:`, error);
       }
@@ -153,7 +153,7 @@ export class IndicesAgentQueue extends AgentQueue {
         await this.updateTask(task.id, { status: 'processing' });
         
         // Create worker and process
-        const worker = new ComparisonWorker(this.getMemory());
+        const worker = new QuantifyWorker(this.getMemory());
         const result = await worker.process(task.payload, task.id);
         
         // Mark task as completed

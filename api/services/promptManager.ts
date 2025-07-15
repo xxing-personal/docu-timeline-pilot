@@ -75,7 +75,7 @@ Output as JSON (do not wrap in markdown code blocks):
 
     // Worker Prompts
     workers: {
-      comparison: {
+      quantify: {
         system: 'You are a helpful assistant for document analysis. You are good at quantitative analysis and when you quantify values, you should always round to two decimal places.',
         user: `## Purpose
 
@@ -185,58 +185,97 @@ Output only the required JSON object exactly as described. Do not wrap it in mar
 
       research: {
         system: 'You are a helpful assistant for research and summarization.',
-        user: `
-## Purpose
-You are given an article and user inquiries, and you are reading documents to answer user's question or fulfill the inquiries.
+        user: `## Purpose
 
-## Background
-The user has provided a research question, and a series of documents in chronological order, and he may want to understand how the related topic is developed. So you need to analyze documents in chronological order to provide insights and track developments over time.
+You will analyze a series of documents provided by a user to address their inquiry or research question, highlighting how key statements or perspectives evolve across documents.
+
+## Context
+
+The user has provided:
+
+* A specific **research question or inquiry**.
+* A chronological sequence of articles on related topics, potentially accompanied by historical summaries or analyses.
+
+Your goal is to carefully examine these documents in chronological order, clearly identify relevant changes or developments, and succinctly summarize your findings.
 
 ## Steps
-1. read the historical generation (answer/summary of historical files) if there is any
-2. compare carefully the current and previous documents, spot the differences related to user inquery, and understand how the statements change over this two file
-3. Write a small paragraph to summarize the describe the new statement, referring to previous two steps analysis. Take into account the historical research context if relevant. Be concise and informative. Try to get as much incremental information as possible from the article compared to historical research context.
-4. Extract several pieces of quotes from the article that support your answer. Cite the original sentences. Also include the main differences
-3. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
+
+1. **Review Historical Context (if provided):**
+
+   * Carefully read any available historical summaries or answers to understand prior analyses and context.
+
+2. **Analyze Current vs. Previous Documents:**
+
+   * Compare the current article with the immediately preceding one.
+   * Identify clear differences related to the user's inquiry. Pay close attention to changes in wording, tone, emphasis, or policy statements.
+
+3. **Summarize Key Developments:**
+
+   * Write a concise and informative paragraph summarizing new developments or shifts in statements, directly referencing your comparative analysis.
+   * Incorporate incremental insights from the current article relative to historical research context and previous documents.
+
+4. **Extract Supporting Quotes and Differences:**
+
+   * Select multiple direct quotes from the current article that clearly support your summary.
+   * Explicitly document significant statement differences between the current and previous articles.
+
+5. **Explain Your Rationale:**
+
+   * Clearly and concisely justify your summary, highlighting how the identified differences inform your analysis and response.
+
+## Required Output Format
+
+Your output **must** be a single valid JSON object structured precisely as follows:
+
+* All keys and string values must be double-quoted.
+* Arrays must be enclosed in square brackets.
+* Do **not** use markdown, YAML, or other formatting.
 
 Example output:
+
 {
-  "answer": "The User minutes indicate continued concerns about statement A and B",
+  "answer": "The latest document reflects an escalation in user requirements, explicitly calling for the removal of statement A and increased emphasis on statement B.",
   "article_id": "{{articleId}}",
   "quotes": [
-    "User requires to waive statement A",
-    "All participant agreed that premia should increase as inflation increase",
+    "User requires to waive statement A.",
+    "All participants agreed that premia should increase as inflation increases."
   ],
-  "differences":[
-  {"last": "User raised concern on statement A ", "current": "user require statement A to be removed"}
-  ]
-  "rational": "The analysis shows both ongoing inflation concerns and emerging positive indicators, suggesting a cautious but potentially improving outlook compared to previous assessments."
+  "differences": [
+    {"last": "User raised concern on statement A.", "current": "User requires statement A to be removed."}
+  ],
+  "rationale": "The shift from general concerns to explicit removal indicates stronger user sentiment on statement A. Additionally, increased emphasis on inflation-related premia suggests heightened awareness and urgency compared to previous discussions."
 }
 
-Article:
+## Article
+
 {{#if timestamp}}Document Timestamp: {{timestamp}}{{/if}}
 
 {{article}}
 
-Question: {{question}}
+## User Question
+
+{{question}}
 {{#if intent}}Intent: {{intent}}{{/if}}
 
-Historical Research Context: 
+## Historical Research Context
+
 {{historicalResearch}}
 
 {{#if previousArticle}}
-Previous Article:
+
+## Previous Article
+
 {{#if previousTimestamp}}Previous Document Timestamp: {{previousTimestamp}}{{/if}}
 Previous Document: {{previousFilename}}
 
 {{previousArticle}}
 
-Please compare the current article with the previous article to identify key developments, changes, or continuities in the research topic.
+Explicitly consider and highlight key developments, changes, or continuities when comparing with this previous article.
 {{else}}
 Previous Article: No previous document available for comparison.
 {{/if}}
 
-Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.`,
+Output only the required JSON object exactly as described. Do not wrap it in markdown code blocks or any other formatting.`,
         variables: ['articleId', 'timestamp', 'article', 'question', 'intent', 'historicalResearch', 'previousArticle', 'previousFilename', 'previousTimestamp']
       },
 

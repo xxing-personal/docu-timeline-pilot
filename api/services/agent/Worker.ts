@@ -35,7 +35,7 @@ export abstract class Worker {
   }
 }
 
-export class ComparisonWorker extends Worker {
+export class QuantifyWorker extends Worker {
   private indicesDb: IndicesDatabaseService;
 
   constructor(memory: Memory) {
@@ -57,9 +57,9 @@ export class ComparisonWorker extends Worker {
           ? taskPayload.extractedTextPath 
           : path.join(process.cwd(), taskPayload.extractedTextPath);
         article = await fs.readFile(fullPath, 'utf-8');
-        console.log(`[COMPARISON WORKER] Loaded article from: ${fullPath}`);
+        console.log(`[QUANTIFY WORKER] Loaded article from: ${fullPath}`);
       } catch (error) {
-        console.error(`[COMPARISON WORKER] Failed to load article from ${taskPayload.extractedTextPath}:`, error);
+        console.error(`[QUANTIFY WORKER] Failed to load article from ${taskPayload.extractedTextPath}:`, error);
         throw new Error(`Failed to load article text: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
@@ -76,10 +76,10 @@ export class ComparisonWorker extends Worker {
 
     // Log previous article info for debugging
     if (previousArticle && previousFilename) {
-      console.log(`[COMPARISON WORKER] Using previous article: ${previousFilename}`);
-      console.log(`[COMPARISON WORKER] Previous article preview: ${previousArticle.substring(0, 150)}${previousArticle.length > 150 ? '...' : ''}`);
+      console.log(`[QUANTIFY WORKER] Using previous article: ${previousFilename}`);
+      console.log(`[QUANTIFY WORKER] Previous article preview: ${previousArticle.substring(0, 150)}${previousArticle.length > 150 ? '...' : ''}`);
     } else {
-      console.log(`[COMPARISON WORKER] No previous article available for comparison`);
+      console.log(`[QUANTIFY WORKER] No previous article available for comparison`);
     }
 
     // Get formatted prompts from PromptManager
@@ -96,9 +96,9 @@ export class ComparisonWorker extends Worker {
       previousTimestamp
     };
 
-    const prompts = await PromptManager.getPrompt('workers', 'comparison', promptVariables);
+    const prompts = await PromptManager.getPrompt('workers', 'quantify', promptVariables);
 
-    const response = await callReasoningModel(prompts.system, prompts.user, '[COMPARISON WORKER]');
+    const response = await callReasoningModel(prompts.system, prompts.user, '[QUANTIFY WORKER]');
     
     // Try to parse the output as JSON
     let output: any = {};
@@ -109,14 +109,14 @@ export class ComparisonWorker extends Worker {
     } else {
       try {
         const jsonText = extractJsonFromResponse(response.text);
-        console.log('[COMPARISON WORKER] Extracted JSON text:', jsonText);
+        console.log('[QUANTIFY WORKER] Extracted JSON text:', jsonText);
         
         output = JSON.parse(jsonText);
-        console.log('[COMPARISON WORKER] Parsed JSON output:', output);
+        console.log('[QUANTIFY WORKER] Parsed JSON output:', output);
         
         // Ensure the score_name matches the provided indexName
         output.score_name = indexName;
-        console.log(`[COMPARISON WORKER] Using provided index name: ${indexName}`);
+        console.log(`[QUANTIFY WORKER] Using provided index name: ${indexName}`);
         
         if (output.score_name && output.score_value !== undefined) {
           scoreSummary = `${output.score_name}: ${output.score_value}`;
@@ -134,11 +134,11 @@ export class ComparisonWorker extends Worker {
               taskPayload.taskId
             );
           } catch (error) {
-            console.error(`[COMPARISON WORKER] Failed to save index to database:`, error);
+            console.error(`[QUANTIFY WORKER] Failed to save index to database:`, error);
           }
         }
       } catch (e) {
-        console.error('[COMPARISON WORKER] Error parsing JSON:', e);
+        console.error('[QUANTIFY WORKER] Error parsing JSON:', e);
         output = { error: 'Failed to parse OpenAI output as JSON', raw: response.text };
       }
     }
@@ -244,7 +244,7 @@ export class WritingWorker extends Worker {
     
     // First, generate a proper title for the article using PromptManager
     const titlePromptVariables = { question, intent };
-    const titlePrompts = await PromptManager.getPrompt('workers', 'writing.title', titlePromptVariables);
+    const titlePrompts = await PromptManager.getPrompt('workers', 'writingTitle', titlePromptVariables);
     console.log(`[WRITING WORKER] Using PromptManager for title generation`);
 
     const titleResponse = await callReasoningModel(titlePrompts.system, titlePrompts.user, '[WRITING WORKER - TITLE]');
@@ -260,7 +260,7 @@ export class WritingWorker extends Worker {
       articleIdMap: JSON.stringify(articleIdMap, null, 2),
       timestampMap: JSON.stringify(timestampMap, null, 2)
     };
-    const articlePrompts = await PromptManager.getPrompt('workers', 'writing.article', articlePromptVariables);
+    const articlePrompts = await PromptManager.getPrompt('workers', 'writingArticle', articlePromptVariables);
     console.log(`[WRITING WORKER] Using PromptManager for article generation`);
 
     const articleResponse = await callWritingModel(articlePrompts.system, articlePrompts.user, '[WRITING WORKER - ARTICLE]');

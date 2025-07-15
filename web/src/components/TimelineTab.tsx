@@ -117,42 +117,54 @@ const SortableTaskItem = ({
 
   // Parse structured summary for completed tasks
   const parseStructuredSummary = (summary: string) => {
-    const lines = summary.split('\n');
-    const result: {
-      oneSentenceSummary?: string;
-      bulletPoints?: string[];
-      confidenceIndex?: string;
-      sentimentIndex?: string;
-    } = {};
+    // First, try to parse as JSON (new format from updated PDF processor)
+    try {
+      const jsonData = JSON.parse(summary);
+      return {
+        oneSentenceSummary: jsonData.ONE_SENTENCE_SUMMARY,
+        bulletPoints: jsonData.BULLET_POINTS || [],
+        confidenceIndex: jsonData.CONFIDENCE_INDEX?.toString(),
+        sentimentIndex: jsonData.SENTIMENT_INDEX?.toString()
+      };
+    } catch (e) {
+      // Fallback to old line-based parsing format
+      const lines = summary.split('\n');
+      const result: {
+        oneSentenceSummary?: string;
+        bulletPoints?: string[];
+        confidenceIndex?: string;
+        sentimentIndex?: string;
+      } = {};
 
-    let currentSection = '';
-    let bulletPoints: string[] = [];
+      let currentSection = '';
+      let bulletPoints: string[] = [];
 
-    for (let i = 0; i < lines.length; i++) {
-      const trimmedLine = lines[i].trim();
-      if (trimmedLine.startsWith('ONE_SENTENCE_SUMMARY:')) {
-        let value = trimmedLine.replace('ONE_SENTENCE_SUMMARY:', '').trim();
-        if (value) {
-          result.oneSentenceSummary = value;
-        } else if (i + 1 < lines.length) {
-          result.oneSentenceSummary = lines[i + 1].trim();
+      for (let i = 0; i < lines.length; i++) {
+        const trimmedLine = lines[i].trim();
+        if (trimmedLine.startsWith('ONE_SENTENCE_SUMMARY:')) {
+          let value = trimmedLine.replace('ONE_SENTENCE_SUMMARY:', '').trim();
+          if (value) {
+            result.oneSentenceSummary = value;
+          } else if (i + 1 < lines.length) {
+            result.oneSentenceSummary = lines[i + 1].trim();
+          }
+        } else if (trimmedLine.startsWith('BULLET_POINTS:')) {
+          currentSection = 'bulletPoints';
+          bulletPoints = [];
+        } else if (trimmedLine.startsWith('CONFIDENCE_INDEX:')) {
+          result.confidenceIndex = trimmedLine.replace('CONFIDENCE_INDEX:', '').trim();
+          currentSection = '';
+        } else if (trimmedLine.startsWith('SENTIMENT_INDEX:')) {
+          result.sentimentIndex = trimmedLine.replace('SENTIMENT_INDEX:', '').trim();
+          currentSection = '';
+        } else if (currentSection === 'bulletPoints' && trimmedLine.startsWith('•')) {
+          bulletPoints.push(trimmedLine.replace('•', '').trim());
         }
-      } else if (trimmedLine.startsWith('BULLET_POINTS:')) {
-        currentSection = 'bulletPoints';
-        bulletPoints = [];
-      } else if (trimmedLine.startsWith('CONFIDENCE_INDEX:')) {
-        result.confidenceIndex = trimmedLine.replace('CONFIDENCE_INDEX:', '').trim();
-        currentSection = '';
-      } else if (trimmedLine.startsWith('SENTIMENT_INDEX:')) {
-        result.sentimentIndex = trimmedLine.replace('SENTIMENT_INDEX:', '').trim();
-        currentSection = '';
-      } else if (currentSection === 'bulletPoints' && trimmedLine.startsWith('•')) {
-        bulletPoints.push(trimmedLine.replace('•', '').trim());
       }
-    }
 
-    result.bulletPoints = bulletPoints;
-    return result;
+      result.bulletPoints = bulletPoints;
+      return result;
+    }
   };
 
   const summaryData = task.status === 'completed' && task.result?.summary 

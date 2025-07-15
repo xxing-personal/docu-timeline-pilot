@@ -211,7 +211,7 @@ export class IndicesDatabaseService {
         // Create task
         const taskInfo: TaskInfo = {
           id: taskKey,
-          type: firstIndex.source === 'pdf_processing' ? 'pdf_processing' : 'comparison',
+          type: firstIndex.source === 'pdf_processing' ? 'pdf_processing' : 'quantify',
           filename: firstIndex.filename,
           articleId: firstIndex.articleId,
           status: 'completed',
@@ -251,7 +251,7 @@ export class IndicesDatabaseService {
   
   private extractAgentKeyFromTaskId(taskId: string): string {
     // Try to extract agent key from task ID patterns
-    if (taskId.includes('indices-comparison-')) {
+    if (taskId.includes('indices-quantify-')) {
       return 'indices_creation_agent';
     } else if (taskId.includes('research-')) {
       return 'change_statement_agent';
@@ -373,7 +373,7 @@ export class IndicesDatabaseService {
         this.db.data!.agents[agentKey].tasks[actualTaskId] = {
           taskInfo: {
             id: actualTaskId,
-            type: 'comparison',
+            type: 'quantify',
             filename,
             articleId,
             status: 'completed',

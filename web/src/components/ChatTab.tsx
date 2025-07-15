@@ -90,7 +90,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   
   // Agent states
-  const [selectedAgentType, setSelectedAgentType] = useState<'indices' | 'deep_research' | 'change_statement' | null>(null);
+  const [selectedAgentType, setSelectedAgentType] = useState<'indices' | 'change_statement' | null>(null);
   const [agentQueues, setAgentQueues] = useState<AgentQueue[]>([]);
   const [currentAgentQueue, setCurrentAgentQueue] = useState<AgentQueue | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
@@ -466,7 +466,6 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
         id: Date.now().toString(),
         content: `🤖 Started ${
           selectedAgentType === 'indices' ? 'Indices Creation' : 
-          selectedAgentType === 'deep_research' ? 'Deep Research' : 
           selectedAgentType === 'change_statement' ? 'Change of Statement' : 'Unknown'
         } agent with query: "${query}". Processing documents...`,
         isUser: false,
@@ -659,7 +658,6 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
             onKeyDown={handleKeyDown}
             placeholder={selectedAgentType ? `Enter your query for ${
               selectedAgentType === 'indices' ? 'Indices Creation' : 
-              selectedAgentType === 'deep_research' ? 'Deep Research' :
               selectedAgentType === 'change_statement' ? 'Change of Statement' : 'Unknown'
             } agent...` : "Type your message..."}
             className="border-0 shadow-none focus:ring-0 focus-visible:ring-0 bg-transparent px-0 text-sm h-8 flex-1"
@@ -730,7 +728,6 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
                   {(() => {
                     if (!selectedAgentType) return 'Agent';
                     if (selectedAgentType === 'indices') return 'Indices';
-                    if (selectedAgentType === 'deep_research') return 'Research';
                     if (selectedAgentType === 'change_statement') return 'Change';
                     return 'Agent';
                   })()}
@@ -741,10 +738,6 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
                 <DropdownMenuItem onClick={() => setSelectedAgentType('indices')}>
                   <Sparkles className="w-4 h-4 mr-2" />
                   Indices Creation
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSelectedAgentType('deep_research')}>
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  Deep Research
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setSelectedAgentType('change_statement')}>
                   <Sparkles className="w-4 h-4 mr-2" />
