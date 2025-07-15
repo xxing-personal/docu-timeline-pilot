@@ -245,8 +245,8 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
 
   const getTaskTypeDisplay = (taskType: string) => {
     switch (taskType) {
-      case 'comparison':
-        return 'Analyze the Difference';
+      case 'quantify':
+        return 'Quantify Analysis';
       case 'research':
         return 'Research Summary';
       case 'writing':
@@ -337,7 +337,7 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
     // Determine what to show based on task type
     let mainValue = null;
     let mainLabel = '';
-    if (task.type === 'comparison') {
+    if (task.type === 'quantify') {
       mainValue = result.score_value ?? result.scoreValue ?? result.score ?? result.score_name ?? result.scoreName ?? null;
       mainLabel = 'Score';
     } else if (task.type === 'research') {
@@ -365,17 +365,34 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
         {differences && differences.length > 0 && (
           <div className="mb-1">
             <span className="font-semibold">Differences:</span>
-            <ul className="list-disc ml-5 mt-1">
-              {differences.map((diff: any, idx: number) => (
-                <li key={idx}>
-                  {typeof diff === 'string' ? diff :
-                    diff.last !== undefined && diff.current !== undefined
-                      ? <span><b>Last:</b> {diff.last} <b>Current:</b> {diff.current}</span>
-                      : JSON.stringify(diff)
-                  }
-                </li>
-              ))}
-            </ul>
+            {differences.every((diff: any) => typeof diff === 'object' && diff.last !== undefined && diff.current !== undefined) ? (
+              <div className="mt-1 overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100">
+                      <th className="border border-slate-300 px-2 py-1 text-left font-medium">Last</th>
+                      <th className="border border-slate-300 px-2 py-1 text-left font-medium">Current</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {differences.map((diff: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-slate-50">
+                        <td className="border border-slate-300 px-2 py-1 bg-red-50 text-red-800">{diff.last}</td>
+                        <td className="border border-slate-300 px-2 py-1 bg-green-50 text-green-800">{diff.current}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <ul className="list-disc ml-5 mt-1">
+                {differences.map((diff: any, idx: number) => (
+                  <li key={idx}>
+                    {typeof diff === 'string' ? diff : JSON.stringify(diff)}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         {rational && (
@@ -383,6 +400,24 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
         )}
       </div>
     );
+  };
+
+  // Add this function to handle restart
+  const handleRestartFromTask = async (queueKey: string, taskId: string) => {
+    if (!window.confirm('Are you sure you want to restart the queue from this task? All subsequent tasks will be reset.')) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/agent/queue/${queueKey}/restart/${taskId}`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to restart queue');
+      }
+      alert('Queue restarted from this task.');
+      await fetchAgentQueues(false);
+    } catch (error) {
+      alert('Failed to restart queue: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
   };
 
   // Show empty state when there are no agent queues
@@ -540,6 +575,15 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                                 Check
                               </Button>
                             )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRestartFromTask(queue.queueKey, task.id)}
+                              className="h-6 px-2 text-xs text-blue-600 border-blue-300 hover:bg-blue-50"
+                              title="Restart the queue from this task"
+                            >
+                              Restart from here
+                            </Button>
                           </div>
                         </div>
                         {expanded && renderTaskDetails(task)}
