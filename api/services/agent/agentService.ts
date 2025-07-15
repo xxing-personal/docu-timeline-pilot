@@ -31,9 +31,9 @@ async function loadExistingQueues() {
           let agentQueue: AgentQueue;
           
           if (queueMetadata.type === 'indices') {
-            agentQueue = new IndicesAgentQueue(memory);
+            agentQueue = new IndicesAgentQueue(memory, queueMetadata.id);
           } else if (queueMetadata.type === 'change_statement') {
-            agentQueue = new ChangeOfStatementAgentQueue(memory);
+            agentQueue = new ChangeOfStatementAgentQueue(memory, queueMetadata.id);
           } else {
             agentQueue = new AgentQueue(memory, queueMetadata.id);
           }
@@ -371,31 +371,17 @@ router.delete('/queue/:queueKey', async (req, res) => {
 router.post('/queue/:queueKey/restart/:taskId', async (req, res) => {
   const { queueKey, taskId } = req.params;
   try {
-    // Try to get from in-memory queue first
-    let queue = agentQueues[queueKey];
+    const queue = agentQueues[queueKey];
     if (!queue) {
-      // If not in memory, try to reconstruct from DB
-      const queueInfo = await queueDb.getQueue(queueKey);
-      if (!queueInfo) {
-        return res.status(404).json({ error: 'Queue not found' });
-      }
-      // Reconstruct the queue object (indices or change_statement)
-      // Extract the original memory ID from the queue ID (remove 'queue-' prefix)
-      const memoryId = queueKey.startsWith('queue-') ? queueKey.substring(6) : queueKey;
-      const memory = new Memory(memoryId);
-      if (queueInfo.type === 'indices') {
-        queue = new IndicesAgentQueue(memory);
-        await queue.initializeQueue(queueInfo.name, 'indices');
-      } else if (queueInfo.type === 'change_statement') {
-        queue = new ChangeOfStatementAgentQueue(memory);
-        await queue.initializeQueue(queueInfo.name, 'change_statement');
-      } else {
-        queue = new AgentQueue(memory, queueInfo.id);
-        await queue.initializeQueue(queueInfo.name, queueInfo.type);
-      }
-      agentQueues[queueKey] = queue;
+      return res.status(404).json({ error: 'Queue not found in memory. It may have been completed or failed prior to server restart.' });
     }
+    
+    // Restart tasks from the specified one
     await queue.restartFromTask(taskId);
+
+    // Immediately start processing the queue again
+    queue.process();
+    
     res.json({ success: true, message: `Queue ${queueKey} restarted from task ${taskId}` });
   } catch (error) {
     console.error(`[AGENT SERVICE] Failed to restart queue ${queueKey} from task ${taskId}:`, error);

@@ -13,8 +13,8 @@ export class IndicesAgentQueue extends AgentQueue {
   private indexName: string;
   private dbService: DatabaseService;
 
-  constructor(memory: Memory) {
-    super(memory);
+  constructor(memory: Memory, queueId?: string) {
+    super(memory, queueId);
     this.name = '';
     this.intent = '';
     this.indexName = '';

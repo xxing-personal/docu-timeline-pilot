@@ -11,8 +11,8 @@ export class ChangeOfStatementAgentQueue extends AgentQueue {
   private intent: string;
   private dbService: DatabaseService;
 
-  constructor(memory: Memory) {
-    super(memory);
+  constructor(memory: Memory, queueId?: string) {
+    super(memory, queueId);
     this.name = '';
     this.intent = '';
     this.dbService = new DatabaseService();

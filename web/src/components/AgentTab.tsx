@@ -137,27 +137,7 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
     }
   };
 
-  const checkAgentFinish = async (queueKey: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/agent/check-finish/${queueKey}`, {
-        method: 'POST'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Agent finish check:', data);
-        
-        // Refresh queue to get updated status
-        await fetchAgentQueues(false);
-        
-        if (data.isFinished) {
-          alert('Agent processing completed!');
-        }
-      }
-    } catch (error) {
-      console.error('Error checking agent finish:', error);
-    }
-  };
+
 
   const deleteQueue = async (queueKey: string) => {
     if (!confirm('Are you sure you want to delete this agent queue? This will remove all tasks, data, and related indices from the system.')) {
@@ -564,17 +544,7 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                             <Badge variant="outline" className={getStatusColor(task.status)}>
                               <span className="capitalize">{task.status}</span>
                             </Badge>
-                            {queue.pendingTasks > 0 && queueStatus === 'active' && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => checkAgentFinish(queue.queueKey)}
-                                className="h-6 px-2 text-xs"
-                              >
-                                <RefreshCw className="w-3 h-3 mr-1" />
-                                Check
-                              </Button>
-                            )}
+
                             <Button
                               size="sm"
                               variant="outline"

@@ -438,6 +438,11 @@ Generate the complete markdown article following the structure and requirements 
       await this.loadConfig();
     }
 
+    // Debug logging
+    console.log(`[PROMPT MANAGER DEBUG] Getting prompt for category: ${category}, type: ${type}`);
+    console.log(`[PROMPT MANAGER DEBUG] Default prompts available:`, Object.keys(this.prompts[category] || {}));
+    console.log(`[PROMPT MANAGER DEBUG] Config prompts available:`, Object.keys(this.loadedConfig?.prompts?.[category] || {}));
+
     // Try to get prompt from config first, then fall back to defaults
     let promptTemplate: PromptTemplate | undefined;
     
@@ -450,6 +455,8 @@ Generate the complete markdown article following the structure and requirements 
     }
     
     if (!promptTemplate) {
+      console.error(`[PROMPT MANAGER DEBUG] Prompt not found for ${category}.${type}`);
+      console.error(`[PROMPT MANAGER DEBUG] Available prompts in category:`, this.prompts[category]);
       throw new Error(`Prompt not found: ${category}.${type}`);
     }
 
