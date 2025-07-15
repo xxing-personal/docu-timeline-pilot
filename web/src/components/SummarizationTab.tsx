@@ -42,6 +42,49 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
   const [loadingArticle, setLoadingArticle] = useState(false);
   const { toast } = useToast();
 
+  const processCitations = (markdownContent: string | undefined | null): string => {
+    if (!markdownContent) return '';
+
+    // Regex to find custom citations like [^article_id(some_id_123)]
+    const citationRegex = /\[\^article_id\(([^)]+)\)\]/g;
+    
+    // A map to store unique citation IDs and their assigned footnote number
+    const citations = new Map<string, number>();
+    let citationCounter = 1;
+
+    // First pass to find all unique citations.
+    // This ensures that repeated citations get the same number.
+    const contentToScan = markdownContent;
+    let match;
+    while ((match = citationRegex.exec(contentToScan)) !== null) {
+      const citationId = match[1];
+      if (!citations.has(citationId)) {
+        citations.set(citationId, citationCounter++);
+      }
+    }
+
+    // If there are no citations, we don't need to do anything.
+    if (citations.size === 0) {
+      return markdownContent;
+    }
+
+    // Replace each custom citation with a standard Markdown footnote reference.
+    let processedContent = markdownContent.replace(citationRegex, (_match, citationId) => {
+      const footnoteNumber = citations.get(citationId);
+      return `[^${footnoteNumber}]`;
+    });
+
+    // Append the footnote definitions at the end of the article.
+    processedContent += '\n\n';
+    
+    for (const [citationId, footnoteNumber] of citations.entries()) {
+      // This creates the footnote definition that remark-gfm will use.
+      processedContent += `[^${footnoteNumber}]: \`${citationId}\`\n`;
+    }
+
+    return processedContent;
+  };
+
   // Fetch research articles from local folder
   const fetchArticles = async () => {
     setLoading(true);
@@ -75,6 +118,7 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
       }
       
       const data = await response.json();
+      data.content = processCitations(data.content);
       setSelectedArticle(data);
     } catch (error) {
       console.error('Error fetching article content:', error);

@@ -70,7 +70,23 @@ export class QuantifyWorker extends Worker {
     const intent = taskPayload.intent || '';
     const indexName = taskPayload.indexName || '';
     const timestamp = taskPayload.timestamp;
-    const previousArticle = taskPayload.previousArticle || '';
+
+    let previousArticle = '';
+    if (taskPayload.previousExtractedTextPath) {
+      try {
+        const fs = require('fs/promises');
+        const path = require('path');
+        const fullPath = path.isAbsolute(taskPayload.previousExtractedTextPath)
+          ? taskPayload.previousExtractedTextPath
+          : path.join(process.cwd(), taskPayload.previousExtractedTextPath);
+        previousArticle = await fs.readFile(fullPath, 'utf-8');
+        console.log(`[QUANTIFY WORKER] Loaded previous article from: ${fullPath}`);
+      } catch (error) {
+        console.error(`[QUANTIFY WORKER] Failed to load previous article from ${taskPayload.previousExtractedTextPath}:`, error);
+        previousArticle = 'Previous article could not be loaded.';
+      }
+    }
+
     const previousFilename = taskPayload.previousFilename;
     const previousTimestamp = taskPayload.previousTimestamp;
 
@@ -172,7 +188,23 @@ export class ResearchWorker extends Worker {
     const question = taskPayload.question || '';
     const intent = taskPayload.intent || '';
     const timestamp = taskPayload.timestamp;
-    const previousArticle = taskPayload.previousArticle || '';
+
+    let previousArticle = '';
+    if (taskPayload.previousExtractedTextPath) {
+      try {
+        const fs = require('fs/promises');
+        const path = require('path');
+        const fullPath = path.isAbsolute(taskPayload.previousExtractedTextPath)
+          ? taskPayload.previousExtractedTextPath
+          : path.join(process.cwd(), taskPayload.previousExtractedTextPath);
+        previousArticle = await fs.readFile(fullPath, 'utf-8');
+        console.log(`[RESEARCH WORKER] Loaded previous article from: ${fullPath}`);
+      } catch (error) {
+        console.error(`[RESEARCH WORKER] Failed to load previous article from ${taskPayload.previousExtractedTextPath}:`, error);
+        previousArticle = 'Previous article could not be loaded.';
+      }
+    }
+
     const previousFilename = taskPayload.previousFilename;
     const previousTimestamp = taskPayload.previousTimestamp;
     

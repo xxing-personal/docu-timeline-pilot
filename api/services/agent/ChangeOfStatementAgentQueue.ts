@@ -105,24 +105,6 @@ Output as JSON (do not wrap in markdown code blocks):
       const previousPdf = i > 0 ? sortedTasks[i - 1] : null;
 
       try {
-        // Load previous article content if available
-        let previousArticle = '';
-        if (previousPdf) {
-          try {
-            const fs = require('fs/promises');
-            const path = require('path');
-            const fullPath = path.isAbsolute(previousPdf.result!.extractedTextPath) 
-              ? previousPdf.result!.extractedTextPath 
-              : path.join(process.cwd(), previousPdf.result!.extractedTextPath);
-            previousArticle = await fs.readFile(fullPath, 'utf-8');
-            console.log(`[CHANGE OF STATEMENT AGENT] Loaded previous article from: ${previousPdf.filename}`);
-            console.log(`[CHANGE OF STATEMENT AGENT] Previous article preview (first 200 chars): ${previousArticle.substring(0, 200)}${previousArticle.length > 200 ? '...' : ''}`);
-          } catch (error) {
-            console.error(`[CHANGE OF STATEMENT AGENT] Failed to load previous article from ${previousPdf.filename}:`, error);
-            previousArticle = 'Previous article could not be loaded.';
-          }
-        }
-
         const task: AgentTask = {
           id: `research-${pdf.id}`,
           type: 'research',
@@ -133,7 +115,7 @@ Output as JSON (do not wrap in markdown code blocks):
             filename: pdf.filename,
             extractedTextPath: pdf.result!.extractedTextPath,
             timestamp: pdf.result?.metadata?.inferredTimestamp || pdf.TimeStamp,
-            previousArticle: previousArticle,
+            previousExtractedTextPath: previousPdf?.result?.extractedTextPath,
             previousFilename: previousPdf?.filename,
             previousTimestamp: previousPdf ? (previousPdf.result?.metadata?.inferredTimestamp || previousPdf.TimeStamp) : undefined
           },
