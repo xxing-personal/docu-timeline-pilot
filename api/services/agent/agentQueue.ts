@@ -217,7 +217,7 @@ export class AgentQueue {
       }
 
       // Reset memory
-      this.memory = new Memory(this.memory['id'], memoryContext, (this.memory as any).maxLength, (this.memory as any).shrinkMode);
+      this.memory = new Memory(this.memory['id']);
       console.log(`[AGENT QUEUE] Memory reset for restart from task: ${taskId}`);
 
       // Reset all tasks from taskId onward

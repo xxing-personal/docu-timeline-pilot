@@ -254,7 +254,7 @@ export class IndicesDatabaseService {
     if (taskId.includes('indices-comparison-')) {
       return 'indices_creation_agent';
     } else if (taskId.includes('research-')) {
-      return 'deep_research_agent';
+      return 'change_statement_agent';
     } else if (taskId === 'unknown_task') {
       return 'legacy_agent';
     }
@@ -619,9 +619,9 @@ export class IndicesDatabaseService {
         // Method 3: Match by agent type and agent naming pattern
         if (agentType && (
           (agentType === 'indices' && agentKey.includes('indices')) ||
-          (agentType === 'deep_research' && agentKey.includes('research')) ||
+          (agentType === 'change_statement' && agentKey.includes('research')) ||
           (agentType === 'indices' && agent.agentInfo.type === 'indices_creation') ||
-          (agentType === 'deep_research' && agent.agentInfo.type === 'deep_research')
+          (agentType === 'change_statement' && agent.agentInfo.type === 'change_statement')
         )) {
           shouldDelete = true;
           console.log(`[INDICES DATABASE] Found agent ${agentKey} with type-based match (${agentType})`);

@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { MemoryDatabaseService } from './memoryDatabaseService';
-import { callReasoningModel } from '../openaiUtil';
+import { callReasoningModel } from '../ModelUtils';
 
 export class Memory {
   private id: string;

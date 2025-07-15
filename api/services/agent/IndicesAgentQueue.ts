@@ -2,7 +2,7 @@ import { AgentQueue, AgentTask } from './agentQueue';
 import { ComparisonWorker } from './Worker';
 import { Memory } from './memory';
 import { DatabaseService } from '../databaseService';
-import { callReasoningModel, extractJsonFromResponse } from '../openaiUtil';
+import { callReasoningModel, extractJsonFromResponse } from '../ModelUtils';
 import { PromptManager } from '../promptManager';
 import fs from 'fs/promises';
 import path from 'path';

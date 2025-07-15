@@ -60,8 +60,8 @@ export async function callReasoningModel(
 }
 
 /**
- * Call OpenAI o4-mini model for writing tasks (article generation, long-form content)
- * Uses high effort reasoning for better quality output
+ * Call OpenAI gpt-4o-mini model for writing tasks (article generation, long-form content)
+ * Uses regular completion without reasoning for faster, more direct writing
  */
 export async function callWritingModel(
   systemPrompt: string, 
@@ -69,20 +69,21 @@ export async function callWritingModel(
   logPrefix: string = '[WRITING MODEL]'
 ): Promise<OpenAIResponse> {
   try {
-    console.log(`${logPrefix} Making API call to o4-mini writing model`);
+    console.log(`${logPrefix} Making API call to gpt-4o-mini writing model`);
     
-    const completion = await openai.responses.create({
-      model: 'o4-mini',
-      reasoning: { effort: 'high' },
-      input: [
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
-      ]
+      ],
+      temperature: 0.7,
+      max_tokens: 4000
     });
     
     console.log(`${logPrefix} API Response:`, JSON.stringify(completion, null, 2));
     
-    const text = completion.output_text?.trim() || '';
+    const text = completion.choices[0]?.message?.content?.trim() || '';
     console.log(`${logPrefix} Response text length:`, text.length);
     console.log(`${logPrefix} Response preview:`, text.substring(0, 500) + '...');
     

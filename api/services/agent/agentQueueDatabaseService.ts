@@ -59,12 +59,10 @@ class Mutex {
 export class AgentQueueDatabaseService {
   private db: Low<QueueDatabaseSchema>;
   private dbPath: string;
-  private dataDir: string;
   private mutex = new Mutex();
 
   constructor() {
     this.dbPath = path.join(process.cwd(), 'data', 'agent-queues.json');
-    this.dataDir = path.join(process.cwd(), 'data', 'queue-data');
     const adapter = new JSONFile<QueueDatabaseSchema>(this.dbPath);
     this.db = new Low(adapter, { queues: {} });
     this.initializeDatabase();
@@ -80,8 +78,6 @@ export class AgentQueueDatabaseService {
     try {
       const dbDir = path.dirname(this.dbPath);
       await fs.mkdir(dbDir, { recursive: true });
-      await fs.mkdir(this.dataDir, { recursive: true });
-      
       await this.db.read();
       if (!this.db.data) {
         this.db.data = { queues: {} };
@@ -172,11 +168,9 @@ export class AgentQueueDatabaseService {
         updatedAt: now
       };
       
-      // Store large payload separately if provided
+      // Store payload directly in the task object if provided
       if (payload) {
-        const payloadPath = path.join(this.dataDir, `${task.id}-payload.json`);
-        await fs.writeFile(payloadPath, JSON.stringify(payload, null, 2));
-        task.dataPath = payloadPath;
+        (task as any).payload = payload;
       }
       
       // Add task to queue
@@ -202,15 +196,9 @@ export class AgentQueueDatabaseService {
 
   async getTaskPayload(queueId: string, taskId: string): Promise<any | undefined> {
     const task = await this.getTask(queueId, taskId);
-    if (!task?.dataPath) return undefined;
-    
-    try {
-      const payloadData = await fs.readFile(task.dataPath, 'utf-8');
-      return JSON.parse(payloadData);
-    } catch (error) {
-      console.error(`[QUEUE DB] Failed to load payload for task ${taskId}:`, error);
-      return undefined;
-    }
+    if (!task) return undefined;
+    // Return the payload property if present
+    return (task as any).payload;
   }
 
   async getQueueTasks(queueId: string): Promise<TaskMetadata[]> {
@@ -260,12 +248,8 @@ export class AgentQueueDatabaseService {
       
       // Delete all task payloads
       for (const task of Object.values(queue.tasks)) {
-        if (task.dataPath) {
-          try {
-            await fs.unlink(task.dataPath);
-          } catch (error) {
-            console.warn(`[QUEUE DB] Failed to delete payload file: ${task.dataPath}`);
-          }
+        if ((task as any).payload) {
+          delete (task as any).payload;
         }
       }
       

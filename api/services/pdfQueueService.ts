@@ -1,16 +1,16 @@
 import async from 'async';
 import { PDFTask } from '../types';
-import { PDFProcessor } from './pdfProcessor';
+import { PdfProcessor } from './pdfProcessor';
 import { DatabaseService } from './databaseService';
 
 export class PDFQueueService {
   private queue: async.QueueObject<PDFTask>;
   private taskOrder: string[] = []; // Maintain order of tasks
-  private pdfProcessor: PDFProcessor;
+  private pdfProcessor: PdfProcessor;
   private databaseService: DatabaseService;
   private autoReorderCompleted: boolean = false; // Track if auto-reorder has been done
 
-  constructor(pdfProcessor: PDFProcessor, databaseService: DatabaseService, concurrency: number = 1) {
+  constructor(pdfProcessor: PdfProcessor, databaseService: DatabaseService, concurrency: number = 1) {
     this.pdfProcessor = pdfProcessor;
     this.databaseService = databaseService;
     

@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import pdfParse from 'pdf-parse';
-import { callReasoningModel } from './openaiUtil';
+import { callReasoningModel, extractJsonFromResponse } from './ModelUtils';
 import { PDFTask, PDFProcessingResult } from '../types';
 import { IndicesDatabaseService } from './indicesDatabaseService';
 
@@ -79,12 +79,11 @@ ${extractedText}
     }
   }
 
-  private async generateSummary(text: string, filename: string): Promise<string> {
+  private async generateSummary(text: string, filename: string): Promise<any> {
     try {
       // Check if OpenAI API key is available
       if (!process.env.OPENAI_API_KEY) {
-        console.warn('OpenAI API key not found, generating placeholder summary');
-        return this.generatePlaceholderSummary(text, filename);
+        throw new Error('OpenAI API key not found. Please configure OPENAI_API_KEY environment variable.');
       }
       
       // Truncate text if it's too long (GPT has token limits)
@@ -127,38 +126,24 @@ Respond only with the JSON object, no additional text or markdown formatting.`;
       }
       
       console.log(`[PDF PROCESSOR] OpenAI response: ${response.text}`);
-      return response.text;
+      
+      // Extract and parse JSON from response
+      const jsonText = extractJsonFromResponse(response.text);
+      console.log(`[PDF PROCESSOR] Extracted JSON text: ${jsonText}`);
+      
+      try {
+        const parsedAnalysis = JSON.parse(jsonText);
+        console.log(`[PDF PROCESSOR] Parsed JSON analysis:`, parsedAnalysis);
+        return parsedAnalysis;
+      } catch (parseError) {
+        console.error('[PDF PROCESSOR] Error parsing JSON from response:', parseError);
+        throw new Error(`Failed to parse OpenAI response as JSON: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+      }
       
     } catch (error) {
       console.error('Summary generation error:', error);
-      console.log('Falling back to placeholder summary');
-      return this.generatePlaceholderSummary(text, filename);
+      throw error;
     }
-  }
-
-  private generatePlaceholderSummary(text: string, filename: string): string {
-    // Generate a basic summary when OpenAI is not available
-    const words = text.split(/\s+/);
-    const totalWords = words.length;
-    const chars = text.length;
-    
-    // Extract first few sentences as a basic summary
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
-    const firstSentences = sentences.slice(0, 3).join('. ').trim();
-    
-    return `ONE_SENTENCE_SUMMARY: This document contains ${totalWords} words and appears to be a text-based document requiring AI analysis for detailed summarization.
-
-BULLET_POINTS:
-• Document contains ${totalWords} words across ${chars} characters
-• Text appears to be readable and extractable from PDF format
-• Content preview: ${firstSentences}${firstSentences.endsWith('.') ? '' : '.'}
-• Document filename: ${filename}
-• Analysis method: Basic text extraction (AI summarization not available)
-• For enhanced analysis, configure OPENAI_API_KEY environment variable
-
-CONFIDENCE_INDEX: 0.3
-SENTIMENT_INDEX: 0.5
-INFERRED_TIMESTAMP: NOT_FOUND`;
   }
 
   // Method to validate PDF file
@@ -227,8 +212,11 @@ INFERRED_TIMESTAMP: NOT_FOUND`;
       console.log(`[PDF PROCESSOR] Analyzing document with AI for: ${task.filename}`);
       const analysis = await this.generateSummary(extractedText, task.filename);
       
-      // Parse inferred timestamp from summary
-      const inferredTimestamp = this.parseInferredTimestamp(analysis);
+      // Extract data from parsed JSON analysis
+      const inferredTimestamp = analysis.INFERRED_TIMESTAMP && analysis.INFERRED_TIMESTAMP !== 'NOT_FOUND' 
+        ? analysis.INFERRED_TIMESTAMP 
+        : null;
+      
       if (inferredTimestamp) {
         console.log(`[PDF PROCESSOR] Inferred timestamp found: ${inferredTimestamp} for ${task.filename}`);
         await this.updateFileTimestamps(task.filename, inferredTimestamp);
@@ -236,16 +224,13 @@ INFERRED_TIMESTAMP: NOT_FOUND`;
         console.log(`[PDF PROCESSOR] No valid timestamp inferred for ${task.filename}`);
       }
 
-      // Parse all *_INDEX fields from summary
+      // Extract analysis scores from JSON
       const analysisScores: Record<string, number> = {};
-      const indexPattern = /([A-Z_]+_INDEX):\s*([0-9.]+)/g;
-      let match;
-      while ((match = indexPattern.exec(analysis)) !== null) {
-        const key = match[1].replace('_INDEX', '').toLowerCase();
-        const value = parseFloat(match[2]);
-        if (!isNaN(value)) {
-          analysisScores[key] = value;
-        }
+      if (analysis.CONFIDENCE_INDEX !== undefined) {
+        analysisScores.confidence = analysis.CONFIDENCE_INDEX;
+      }
+      if (analysis.SENTIMENT_INDEX !== undefined) {
+        analysisScores.sentiment = analysis.SENTIMENT_INDEX;
       }
       
       // Save indices to the indices database if any were found
@@ -276,7 +261,7 @@ INFERRED_TIMESTAMP: NOT_FOUND`;
         filename: task.filename,
         processedAt: new Date().toISOString(),
         extractedTextPath: extractedTextPath, // Return the path instead of the text
-        summary: analysis,
+        summary: JSON.stringify(analysis), // Convert back to string for storage
         pageCount: pdfData.numpages,
         fileSize: stats.size,
         metadata: {
@@ -285,7 +270,7 @@ INFERRED_TIMESTAMP: NOT_FOUND`;
           processingDuration: Date.now(), // Will be calculated later
           pdfInfo: pdfData.info || {},
           textLength: extractedText.length,
-          summaryLength: analysis.length,
+          summaryLength: JSON.stringify(analysis).length,
           inferredTimestamp: inferredTimestamp || null,
           analysisScores
         }
@@ -298,24 +283,6 @@ INFERRED_TIMESTAMP: NOT_FOUND`;
       console.error(`Error processing PDF ${task.filename}:`, error);
       throw new Error(`Failed to process PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
-
-  private parseInferredTimestamp(summary: string): string | null {
-    const lines = summary.split('\n');
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      if (trimmedLine.startsWith('INFERRED_TIMESTAMP:')) {
-        const timestamp = trimmedLine.replace('INFERRED_TIMESTAMP:', '').trim();
-        if (timestamp === 'NOT_FOUND') {
-          return null;
-        }
-        // Validate that it's a proper ISO timestamp
-        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(timestamp)) {
-          return timestamp;
-        }
-      }
-    }
-    return null;
   }
 
   private async updateFileTimestamps(filename: string, inferredTimestamp: string): Promise<void> {

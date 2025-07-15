@@ -54,9 +54,9 @@ Output as JSON (do not wrap in markdown code blocks):
         variables: ['userQuery']
       },
       
-      deepResearch: {
+      changeStatement: {
         system: 'You are a helpful assistant for analyzing user intent for research tasks.',
-        user: `You are analyzing a user query for a deep research agent. The agent will analyze PDF documents to answer research questions.
+        user: `You are analyzing a user query for a change of statement agent. The agent will analyze PDF documents to answer research questions.
 
 User Query: "{{userQuery}}"
 
@@ -70,26 +70,6 @@ Output as JSON (do not wrap in markdown code blocks):
   "taskName": "concise task name"
 }`,
         variables: ['userQuery']
-      },
-      
-      changeStatement: {
-        system: 'You are a helpful assistant for analyzing user intent for statement change analysis tasks.',
-        user: `You are analyzing a user query for a change of statement agent. The agent will analyze PDF documents to identify and track changes in language, tone, messaging, or statements over time.
-
-User Query: "{{userQuery}}"
-
-Please provide:
-1. A clear analysis of what changes in statements/language the user wants to track.
-2. A concise, descriptive name for this statement change analysis task (max 50 characters)
-3. A consistent analysis name that will be used for ALL documents analyzed in this task (max 40 characters, descriptive but concise)
-
-Output as JSON (do not wrap in markdown code blocks):
-{
-  "intent": "brief analysis of what statement changes to track",
-  "taskName": "concise task name",
-  "analysisName": "consistent analysis name for all documents"
-}`,
-        variables: ['userQuery']
       }
     },
 
@@ -98,91 +78,138 @@ Output as JSON (do not wrap in markdown code blocks):
       comparison: {
         system: 'You are a helpful assistant for document analysis. You are good at quantitative analysis and when you quantify values, you should always round to two decimal places.',
         user: `## Purpose
-You are given an article and you need to create a score based on users' inquiry and intent. 
 
-## Background
-This article is part of a time series of articles that talk about similar or related topics. We have had similar agents review the previous articles. From that reading, they quoted some sentences from the articles, wrote down the rationale and gave a score based on that article. Now it is your turn to conduct this quantification process.
+You will analyze an article and generate a score based on a specific user inquiry and intent.
+
+## Context
+
+This article is part of a sequential series addressing similar or related topics. Previous articles were reviewed by similar agents who provided:
+
+* **Quotes**: Relevant excerpts from the articles.
+* **Rationale**: Explanation of how the score was determined.
+* **Scores**: Numeric representation of how closely each article aligns with user inquiries.
+
+Your task is to perform this analysis for the current article, informed by previous analyses.
 
 ## Steps
-1. First read all historical generation if there is any. You need to take a look at quotes (cited from the doc), rationale (how this score is generated), and try to understand how this score is generated
-2. Secondly you need to read the current article and previous article, spot the differences for the statement related to user inquiry, and understand the change of tones or statement. 
-3. Based on your understanding of previous steps, give a score for user inquiry on current article. Be consistent with historical scoring patterns and generation logic but allow for value changes over time. Please do not hesitate to give score outside historical range -- it is really normal.
-4. Besides the score, extract several pieces of quotes from the article that support your score. Cite the original sentences. Also extract some key change in tones. Also put down your rationale for the score for future generation.
+
+1. **Review Historical Analyses (if available)**:
+   Carefully examine prior analyses—quotes, rationales, and scores—to understand the logic behind historical scoring.
+
+2. **Analyze Current and Previous Articles**:
+
+   * Identify key differences related directly to the user inquiry.
+   * Note changes in tone, emphasis, or specific statements between articles.
+
+3. **Assign a Score**:
+
+   * Score the current article based on the user inquiry.
+   * Be consistent with historical scoring logic, but adapt appropriately if the current context has changed significantly.
+   * Your score should be able to compare to historical and its delta vs. previous scores should reflect the change of tone or statement.
+   * Scores outside the historical range are acceptable if clearly justified.
+
+4. **Extract Supporting Quotes and Differences**:
+
+   * Provide multiple quotes directly from the current article supporting your score.
+   * Clearly highlight key differences from the previous article's statements or tone.
+   * Include a concise, logical rationale explaining your scoring decision for future reference.
 
 {{#if knowledge}}
+
 ## Knowledge
+
 {{knowledge}}
 {{/if}}
 
-## Output format
-The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
+## Required Output Format
 
-IMPORTANT: You must use "{{indexName}}" as the score_name. Do not generate a different name.
+Your output must be a single valid JSON object following this exact format:
+
+* All keys and string values must be double-quoted.
+* Arrays must be enclosed in square brackets.
+* Do **not** use markdown, YAML, or other formatting.
+* IMPORTANT: You must use "{{indexName}}" as the score_name. Do not generate a different name.
+
 
 Example output:
+
 {
   "score_name": "{{indexName}}",
   "score_value": 0.7342,
   "article_id": "{{articleId}}",
   "quotes": [
     "Inflation remained elevated.",
-    "Participants agreed that inflation was unacceptably high and noted that the data indicated that declines in inflation had been slower than they had expected.",
-    "Participants generally noted that economic activity had continued to expand at a modest pace but there were some signs that supply and demand in the labor market were coming into better balance."
+    "Participants agreed that inflation was unacceptably high and noted that declines in inflation had been slower than expected.",
+    "Participants noted that economic activity expanded modestly, with signs of improving labor market balance."
   ],
-  "Key Differences": [
+  "key_differences": [
     {"last": "inflation remains high", "current": "inflation remains elevated"},
     {"last": "aaaaa", "current":"aaaaab"}
   ],
-  "rational": "The score of 0.7342 reflects a moderately high concern about inflation, consistent with the language used in the document. This score is slightly higher than the previous month due to the explicit mention of elevated inflation levels and slower-than-expected declines."
+  "rationale": "The score of 0.7342 reflects moderately high concern, indicated by explicit mentions of elevated inflation and slower-than-expected improvements. The increase from the previous period is justified by these specific textual changes."
 }
 
-Article:
+
+## Article
+
 {{#if timestamp}}Document Timestamp: {{timestamp}}{{/if}}
 
 {{article}}
 
-User inquiry: {{question}}
+## User Inquiry
+
+{{question}}
 {{#if intent}}Intent: {{intent}}{{/if}}
 
-Historical Generation: 
+## Historical Analyses
+
 {{#if historicalScores}}{{historicalScores}}{{/if}}
 
 {{#if previousArticle}}
-Previous Article:
+
+## Previous Article
+
 {{#if previousTimestamp}}Previous Document Timestamp: {{previousTimestamp}}{{/if}}
 Previous Document: {{previousFilename}}
 
 {{previousArticle}}
 
-Please consider the previous article when analyzing the current document for trends, changes, or comparisons.
+Consider this previous article when analyzing trends, changes, or differences.
 {{else}}
 Previous Article: No previous document available for comparison.
 {{/if}}
 
-Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.`,
+Output only the required JSON object exactly as described. Do not wrap it in markdown code blocks or any other formatting.`,
         variables: ['knowledge', 'indexName', 'articleId', 'article', 'timestamp', 'question', 'intent', 'historicalScores', 'previousArticle', 'previousFilename', 'previousTimestamp']
       },
 
       research: {
         system: 'You are a helpful assistant for research and summarization.',
-        user: `You are given an article and user inquiries, and you are reading documents to answer user's question or fulfill the inquiries.
+        user: `
+## Purpose
+You are given an article and user inquiries, and you are reading documents to answer user's question or fulfill the inquiries.
 
 ## Background
-The user has provided a research question and you need to analyze documents in chronological order to provide insights and track developments over time.
+The user has provided a research question, and a series of documents in chronological order, and he may want to understand how the related topic is developed. So you need to analyze documents in chronological order to provide insights and track developments over time.
 
-1. Write a small paragraph to answer the question, referring to the article. Take into account the historical research context if relevant. Be concise and informative. Try to get as much incremental information as possible from the article compared to historical research context.
-2. Extract several pieces of quotes from the article that support your answer. Cite the original sentences.
+## Steps
+1. read the historical generation (answer/summary of historical files) if there is any
+2. compare carefully the current and previous documents, spot the differences related to user inquery, and understand how the statements change over this two file
+3. Write a small paragraph to summarize the describe the new statement, referring to previous two steps analysis. Take into account the historical research context if relevant. Be concise and informative. Try to get as much incremental information as possible from the article compared to historical research context.
+4. Extract several pieces of quotes from the article that support your answer. Cite the original sentences. Also include the main differences
 3. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
 
 Example output:
 {
-  "answer": "The FOMC minutes indicate continued concerns about elevated inflation levels, with participants noting that inflation declines have been slower than expected. However, there are signs of improvement in labor market balance and economic activity continues to expand modestly.",
+  "answer": "The User minutes indicate continued concerns about statement A and B",
   "article_id": "{{articleId}}",
   "quotes": [
-    "Inflation remained elevated.",
-    "Participants agreed that inflation was unacceptably high and noted that the data indicated that declines in inflation had been slower than they had expected.",
-    "Participants generally noted that economic activity had continued to expand at a modest pace but there were some signs that supply and demand in the labor market were coming into better balance."
+    "User requires to waive statement A",
+    "All participant agreed that premia should increase as inflation increase",
   ],
+  "differences":[
+  {"last": "User raised concern on statement A ", "current": "user require statement A to be removed"}
+  ]
   "rational": "The analysis shows both ongoing inflation concerns and emerging positive indicators, suggesting a cautious but potentially improving outlook compared to previous assessments."
 }
 
@@ -489,3 +516,4 @@ Generate the complete markdown article following the structure and requirements 
     };
   }
 } 
+

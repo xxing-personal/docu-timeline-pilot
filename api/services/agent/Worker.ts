@@ -1,7 +1,7 @@
 import { Memory } from './memory';
 import { MemoryDatabaseService } from './memoryDatabaseService';
 import { IndicesDatabaseService } from '../indicesDatabaseService';
-import { callReasoningModel, callWritingModel, extractJsonFromResponse } from '../openaiUtil';
+import { callReasoningModel, callWritingModel, extractJsonFromResponse } from '../ModelUtils';
 import { PromptManager } from '../promptManager';
 import OpenAI from 'openai';
 
@@ -184,55 +184,23 @@ export class ResearchWorker extends Worker {
       console.log(`[RESEARCH WORKER] No previous article available for comparison`);
     }
     
-    const systemPrompt = 'You are a helpful assistant for research and summarization.';
-    
-    const userPrompt = `
-You are given an article and user inquiries, and you are reading documents to answer user's question or fullfill the inquiries.
+    // Get formatted prompts from PromptManager
+    const promptVariables = {
+      articleId: article_id,
+      article,
+      timestamp,
+      question,
+      intent,
+      historicalResearch,
+      previousArticle,
+      previousFilename,
+      previousTimestamp
+    };
 
-## Background
-The user has provided a research question and you need to analyze documents in chronological order to provide insights and track developments over time.
+    const prompts = await PromptManager.getPrompt('workers', 'research', promptVariables);
+    console.log(`[RESEARCH WORKER] Using PromptManager for research worker`);
 
-1. Write a small paragraph to answer the question, referring to the article. Take into account the historical research context if relevant. Be concise and informative. Try to get as much incremental information as possible from the article compared to historical research context.
-2. Extract several pieces of quotes from the article that support your answer. Cite the original sentences.
-3. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
-
-Example output:
-{
-  "answer": "The FOMC minutes indicate continued concerns about elevated inflation levels, with participants noting that inflation declines have been slower than expected. However, there are signs of improvement in labor market balance and economic activity continues to expand modestly.",
-  "article_id": "${article_id}",
-  "quotes": [
-    "Inflation remained elevated.",
-    "Participants agreed that inflation was unacceptably high and noted that the data indicated that declines in inflation had been slower than they had expected.",
-    "Participants generally noted that economic activity had continued to expand at a modest pace but there were some signs that supply and demand in the labor market were coming into better balance."
-  ],
-  "rational": "The analysis shows both ongoing inflation concerns and emerging positive indicators, suggesting a cautious but potentially improving outlook compared to previous assessments."
-}
-
-Article:
-${timestamp ? `Document Timestamp: ${timestamp}` : ''}
-
-${article}
-
-Question: ${question}
-${intent ? `Intent: ${intent}` : ''}
-
-Historical Research Context: 
-${historicalResearch}
-
-${previousArticle && previousFilename ? `
-Previous Article:
-${previousTimestamp ? `Previous Document Timestamp: ${previousTimestamp}` : ''}
-Previous Document: ${previousFilename}
-
-${previousArticle}
-
-Please compare the current article with the previous article to identify key developments, changes, or continuities in the research topic.
-` : 'Previous Article: No previous document available for comparison.'}
-
-Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
-`;
-
-    const response = await callReasoningModel(systemPrompt, userPrompt, '[RESEARCH WORKER]');
+    const response = await callReasoningModel(prompts.system, prompts.user, '[RESEARCH WORKER]');
     
     let output: any = {};
     let summary = '';
@@ -274,85 +242,28 @@ export class WritingWorker extends Worker {
     const articleIdMap = taskPayload.articleIdMap || {};
     const timestampMap = taskPayload.timestampMap || {};
     
-    // First, generate a proper title for the article
-    const titleSystemPrompt = 'You are a helpful assistant for generating professional research article titles.';
-    
-    const titleUserPrompt = `
-Based on this research question and intent, generate a clear, professional title for a research article:
+    // First, generate a proper title for the article using PromptManager
+    const titlePromptVariables = { question, intent };
+    const titlePrompts = await PromptManager.getPrompt('workers', 'writing.title', titlePromptVariables);
+    console.log(`[WRITING WORKER] Using PromptManager for title generation`);
 
-Question: ${question}
-Intent: ${intent}
-
-Generate a concise, descriptive title (max 60 characters) that would be appropriate for a professional research article. 
-Return only the title, no quotes or additional text.
-`;
-
-    const titleResponse = await callReasoningModel(titleSystemPrompt, titleUserPrompt, '[WRITING WORKER - TITLE]');
+    const titleResponse = await callReasoningModel(titlePrompts.system, titlePrompts.user, '[WRITING WORKER - TITLE]');
     
     const articleTitle = titleResponse.text || question;
     console.log('[WRITING WORKER] Generated article title:', articleTitle);
     
-    const articleSystemPrompt = 'You are an expert research analyst and writer specializing in comprehensive, quotes-based research articles.';
-    
-    const articleUserPrompt = `
-You are an expert research analyst writing a comprehensive research article. Based on the provided research context from multiple documents, create a professional, well-structured markdown article.
+    // Generate the article using PromptManager
+    const articlePromptVariables = {
+      question,
+      intent,
+      historicalResearch,
+      articleIdMap: JSON.stringify(articleIdMap, null, 2),
+      timestampMap: JSON.stringify(timestampMap, null, 2)
+    };
+    const articlePrompts = await PromptManager.getPrompt('workers', 'writing.article', articlePromptVariables);
+    console.log(`[WRITING WORKER] Using PromptManager for article generation`);
 
-Research Question: ${question}
-${intent ? `Research Intent: ${intent}` : ''}
-
-ARTICLE REQUIREMENTS:
-1. **Professional Structure**: Use a clear hierarchy with main sections and subsections
-2. **Executive Summary**: Start with a brief overview of key findings
-3. **Comprehensive Analysis**: Provide detailed analysis of the research question
-4. **quotes-Based**: Support all claims with specific citations from the documents
-5. **Chronological Context**: When relevant, discuss developments over time
-6. **Synthesis**: Connect findings across different documents to provide insights
-7. **Citations**: Use [^article_id] format for all references
-8. **References Section**: Include complete reference list with titles and timestamps
-
-WRITING STYLE:
-- Professional and authoritative tone
-- Clear, accessible language while maintaining analytical depth
-- Logical flow between sections
-- Specific data points and quotes where relevant
-- Balanced perspective acknowledging different viewpoints when present
-
-STRUCTURE TEMPLATE:
-# [Article Title]
-
-## Executive Summary
-[2-3 paragraph overview of key findings]
-
-## Introduction
-[Context and background]
-
-## [Main Analysis Sections]
-[Organize by themes, chronology, or key aspects of the research question]
-
-## Key Findings
-[Summarize main discoveries and insights]
-
-## Conclusion
-[Synthesis and implications]
-
-## References
-[Complete citation list]
-
----
-
-Historical Research Context:
-${historicalResearch}
-
-Article ID Map (for citation):
-${JSON.stringify(articleIdMap, null, 2)}
-
-Timestamp Map (for chronological context):
-${JSON.stringify(timestampMap, null, 2)}
-
-Generate the complete markdown article following the structure and requirements above.
-`;
-
-    const articleResponse = await callWritingModel(articleSystemPrompt, articleUserPrompt, '[WRITING WORKER - ARTICLE]');
+    const articleResponse = await callWritingModel(articlePrompts.system, articlePrompts.user, '[WRITING WORKER - ARTICLE]');
     
     let article = '';
     if (!articleResponse.success) {
@@ -390,14 +301,12 @@ original_query: "${question}"
 intent: "${intent}"
 generated: ${new Date().toISOString()}
 documents_analyzed: ${Object.keys(articleIdMap).length}
-category: "deep_research"
+category: "change_statement"
 ---
 
 ${article}`;
-      
       await fs.writeFile(filepath, articleWithMeta, 'utf-8');
       console.log(`[WRITING WORKER] Saved article to: ${filepath}`);
-      
       return { 
         article, 
         articleTitle,
@@ -410,117 +319,3 @@ ${article}`;
     }
   }
 }
-
-export class ChangeOfStatementWorker extends Worker {
-  protected async coreProcess(taskPayload: any, context: string): Promise<object> {
-    // Load article text from file if not provided directly
-    let article = taskPayload.article || '';
-    if (!article && taskPayload.extractedTextPath) {
-      try {
-        const fs = require('fs/promises');
-        const path = require('path');
-        // Check if the path is already absolute or relative
-        const fullPath = path.isAbsolute(taskPayload.extractedTextPath) 
-          ? taskPayload.extractedTextPath 
-          : path.join(process.cwd(), taskPayload.extractedTextPath);
-        article = await fs.readFile(fullPath, 'utf-8');
-        console.log(`[CHANGE OF STATEMENT WORKER] Loaded article from: ${fullPath}`);
-      } catch (error) {
-        console.error(`[CHANGE OF STATEMENT WORKER] Failed to load article from ${taskPayload.extractedTextPath}:`, error);
-        throw new Error(`Failed to load article text: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
-    }
-
-    const article_id = taskPayload.article_id || '';
-    const historicalAnalysis = context;
-    const question = taskPayload.question || '';
-    const intent = taskPayload.intent || '';
-    const analysisName = taskPayload.analysisName || '';
-    const timestamp = taskPayload.timestamp;
-    const previousArticle = taskPayload.previousArticle || '';
-    const previousFilename = taskPayload.previousFilename;
-    const previousTimestamp = taskPayload.previousTimestamp;
-
-    // Log previous article info for debugging
-    if (previousArticle && previousFilename) {
-      console.log(`[CHANGE OF STATEMENT WORKER] Using previous article: ${previousFilename}`);
-      console.log(`[CHANGE OF STATEMENT WORKER] Previous article preview: ${previousArticle.substring(0, 150)}${previousArticle.length > 150 ? '...' : ''}`);
-    } else {
-      console.log(`[CHANGE OF STATEMENT WORKER] No previous article available for comparison`);
-    }
-
-    const systemPrompt = 'You are a helpful assistant for analyzing changes in statements, language, tone, and messaging in documents.';
-    
-    const userPrompt = `
-You are analyzing a document to identify changes in statements, language, tone, or messaging. Your task is to track qualitative changes in how concepts are discussed, framed, or presented.
-
-1. Analyze the document for statements, language patterns, tone, and messaging related to the focus area.
-2. Compare with historical analysis to identify changes, evolution, or shifts in approach.
-3. If a previous article is available, pay special attention to direct comparisons between the current and previous documents.
-4. Extract specific quotes that demonstrate these changes or continuities.
-5. The output must be a single valid JSON object, with all keys and string values double-quoted, and arrays in square brackets. Do not use markdown, YAML, or any other formatting.
-
-IMPORTANT: You must use "${analysisName}" as the analysis_name. Do not generate a different name.
-
-Example output:
-{
-  "analysis_name": "${analysisName}",
-  "change_type": "Increased dovish language and forward guidance clarity",
-  "article_id": "${article_id}",
-  "quotes": [
-    "The Committee will continue to monitor the implications of incoming information for the economic outlook.",
-    "The Committee is prepared to adjust the stance of monetary policy as appropriate if risks emerge that could impede the attainment of the Committee's goals.",
-    "The Committee expects to maintain this target range until labor market conditions have reached levels consistent with the Committee's assessments."
-  ],
-  "change_description": "This document shows a notable shift toward more explicit forward guidance compared to earlier communications. The language has become more specific about conditions for policy changes, moving away from general statements to concrete economic indicators.",
-  "comparison_context": "Previous documents used more general language about 'monitoring conditions' while this document provides specific criteria and expectations, indicating a strategic shift toward greater transparency in monetary policy communication."
-}
-
-Article:
-${timestamp ? `Document Timestamp: ${timestamp}` : ''}
-
-${article}
-
-Question: ${question}
-${intent ? `Intent: ${intent}` : ''}
-
-Historical Analysis:
-${historicalAnalysis || 'No previous analysis available.'}
-
-${previousArticle && previousFilename ? `
-Previous Article for Direct Comparison:
-${previousTimestamp ? `Previous Document Timestamp: ${previousTimestamp}` : ''}
-Previous Document: ${previousFilename}
-
-${previousArticle}
-
-Please analyze the current document in the context of this previous document, identifying specific changes in language, tone, statements, or messaging. Focus on how the approach, framing, or emphasis has evolved between these two documents.
-` : 'Previous Article: No previous document available for direct comparison.'}
-
-Output only the JSON object as described above. Do not wrap it in markdown code blocks or any other formatting.
-`;
-
-    const response = await callReasoningModel(systemPrompt, userPrompt, '[CHANGE OF STATEMENT WORKER]');
-    
-    if (!response.success) {
-      throw new Error(`Failed to get response from OpenAI: ${response.error}`);
-    }
-
-    try {
-      const jsonText = extractJsonFromResponse(response.text);
-      console.log('[CHANGE OF STATEMENT WORKER] Extracted JSON text:', jsonText);
-      
-      const output = JSON.parse(jsonText);
-      console.log('[CHANGE OF STATEMENT WORKER] Parsed JSON output:', output);
-      
-      // Ensure the analysis_name matches the provided analysisName
-      output.analysis_name = analysisName;
-      console.log(`[CHANGE OF STATEMENT WORKER] Using provided analysis name: ${analysisName}`);
-      
-      return output;
-    } catch (error) {
-      console.error('[CHANGE OF STATEMENT WORKER] Error parsing JSON:', error);
-      throw new Error(`Failed to parse OpenAI output as JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-} 

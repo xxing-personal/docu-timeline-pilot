@@ -1,10 +1,9 @@
 import express from 'express';
 import { AgentQueue, AgentTask } from './agentQueue';
-import { ComparisonWorker, ResearchWorker, WritingWorker, ChangeOfStatementWorker } from './Worker';
+import { ComparisonWorker, ResearchWorker, WritingWorker } from './Worker';
 import { MemoryDatabaseService } from './memoryDatabaseService';
 import { Memory } from './memory';
 import { IndicesAgentQueue } from './IndicesAgentQueue';
-import { DeepResearchAgentQueue } from './DeepResearchAgentQueue';
 import { ChangeOfStatementAgentQueue } from './ChangeOfStatementAgentQueue';
 import { IndicesDatabaseService } from '../indicesDatabaseService';
 import { AgentQueueDatabaseService } from './agentQueueDatabaseService';
@@ -33,8 +32,6 @@ async function loadExistingQueues() {
           
           if (queueMetadata.type === 'indices') {
             agentQueue = new IndicesAgentQueue(memory);
-          } else if (queueMetadata.type === 'deep_research') {
-            agentQueue = new DeepResearchAgentQueue(memory);
           } else if (queueMetadata.type === 'change_statement') {
             agentQueue = new ChangeOfStatementAgentQueue(memory);
           } else {
@@ -60,7 +57,7 @@ async function loadExistingQueues() {
 loadExistingQueues();
 
 // POST /api/agent/start
-// Start an agent run (indices, deep research, or change of statement)
+// Start an agent run (indices or change of statement)
 router.post('/start', async (req, res) => {
   const { agentType, userQuery } = req.body;
   if (!agentType || !userQuery) {
@@ -76,16 +73,12 @@ router.post('/start', async (req, res) => {
       const memory = new Memory(`agent-indices-${Date.now()}`);
       agentQueue = new IndicesAgentQueue(memory);
       await agentQueue.initializeQueue(`Indices Agent - ${userQuery}`, 'indices');
-    } else if (agentType === 'deep_research') {
-      const memory = new Memory(`agent-deep-research-${Date.now()}`);
-      agentQueue = new DeepResearchAgentQueue(memory);
-      await agentQueue.initializeQueue(`Deep Research Agent - ${userQuery}`, 'deep_research');
     } else if (agentType === 'change_statement') {
       const memory = new Memory(`agent-change-statement-${Date.now()}`);
       agentQueue = new ChangeOfStatementAgentQueue(memory);
       await agentQueue.initializeQueue(`Change of Statement Agent - ${userQuery}`, 'change_statement');
     } else {
-      return res.status(400).json({ error: 'Invalid agentType. Must be "indices", "deep_research", or "change_statement"' });
+      return res.status(400).json({ error: 'Invalid agentType. Must be "indices" or "change_statement"' });
     }
 
     // Store the queue
@@ -95,9 +88,6 @@ router.post('/start', async (req, res) => {
     if (agentType === 'indices') {
       await (agentQueue as IndicesAgentQueue).initiate(userQuery);
       await (agentQueue as IndicesAgentQueue).addTasks(userQuery);
-    } else if (agentType === 'deep_research') {
-      await (agentQueue as DeepResearchAgentQueue).initiate(userQuery);
-      await (agentQueue as DeepResearchAgentQueue).addTasks(userQuery);
     } else if (agentType === 'change_statement') {
       await (agentQueue as ChangeOfStatementAgentQueue).initiate(userQuery);
       await (agentQueue as ChangeOfStatementAgentQueue).addTasks(userQuery);
@@ -255,8 +245,6 @@ router.post('/check-finish/:queueKey', async (req, res) => {
     if (queue) {
       let isFinished = false;
       if (queue instanceof IndicesAgentQueue) {
-        isFinished = await queue.ensuringFinish();
-      } else if (queue instanceof DeepResearchAgentQueue) {
         isFinished = await queue.ensuringFinish();
       } else if (queue instanceof ChangeOfStatementAgentQueue) {
         // Generic check for change of statement agent based on task statuses

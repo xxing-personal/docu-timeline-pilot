@@ -1,6 +1,6 @@
 import express from 'express';
 import { ChatDatabaseService, ChatMessage } from './chatDatabaseService';
-import { callReasoningModel } from './openaiUtil';
+import { callReasoningModel } from './ModelUtils';
 
 const router = express.Router();
 
