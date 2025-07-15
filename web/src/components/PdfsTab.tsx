@@ -43,7 +43,12 @@ const PdfsTab = ({ uploadedFiles, setUploadedFiles, selectedPdf, setSelectedPdf 
   const fetchServerFiles = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/files`);
+      const response = await fetch(`${API_BASE_URL}/files`, {
+        method: 'GET',
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      });
       if (response.ok) {
         const data: FilesResponse = await response.json();
         setServerFiles(data.files);
