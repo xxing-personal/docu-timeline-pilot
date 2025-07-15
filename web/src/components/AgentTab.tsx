@@ -51,7 +51,7 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
   const [agentQueues, setAgentQueues] = useState<AgentQueue[]>([]);
   const [loading, setLoading] = useState(false);
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
-  const [selectedAgentType, setSelectedAgentType] = useState<'indices' | 'deep_research' | 'change_statement' | null>(null);
+  const [selectedAgentType, setSelectedAgentType] = useState<'indices' | 'change_statement' | null>(null);
   const [agentQuery, setAgentQuery] = useState('');
   const [agentLoading, setAgentLoading] = useState(false);
   const [selectedQueue, setSelectedQueue] = useState<AgentQueue | null>(null);
@@ -236,8 +236,6 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
     switch (agentType) {
       case 'indices':
         return 'Indices Creation';
-      case 'deep_research':
-        return 'Deep Research';
       case 'change_statement':
         return 'Change of Statement';
       default:
@@ -335,16 +333,24 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
 
   // Helper to render task details
   const renderTaskDetails = (task: AgentTask) => {
-    // Try to find score, quotes, rational in result or payload
     const result = task.result || {};
-    const score = result.score_value ?? result.scoreValue ?? result.score ?? result.score_name ?? result.scoreName ?? result.summary ?? null;
+    // Determine what to show based on task type
+    let mainValue = null;
+    let mainLabel = '';
+    if (task.type === 'comparison') {
+      mainValue = result.score_value ?? result.scoreValue ?? result.score ?? result.score_name ?? result.scoreName ?? null;
+      mainLabel = 'Score';
+    } else if (task.type === 'research') {
+      mainValue = result.answer ?? result.summary ?? null;
+      mainLabel = 'Statement';
+    }
     const quotes = result.quotes || [];
     const rational = result.rational || result.rationale || null;
-    if (!score && (!quotes || quotes.length === 0) && !rational) return null;
+    const differences = result.differences || result.key_differences || [];
     return (
       <div className="mt-2 p-2 bg-slate-50 rounded text-xs text-slate-700">
-        {score && (
-          <div className="mb-1"><span className="font-semibold">Score:</span> {score}</div>
+        {mainValue && (
+          <div className="mb-1"><span className="font-semibold">{mainLabel}:</span> {mainValue}</div>
         )}
         {quotes && quotes.length > 0 && (
           <div className="mb-1">
@@ -352,6 +358,22 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
             <ul className="list-disc ml-5 mt-1">
               {quotes.map((ev: string, idx: number) => (
                 <li key={idx}>{ev}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {differences && differences.length > 0 && (
+          <div className="mb-1">
+            <span className="font-semibold">Differences:</span>
+            <ul className="list-disc ml-5 mt-1">
+              {differences.map((diff: any, idx: number) => (
+                <li key={idx}>
+                  {typeof diff === 'string' ? diff :
+                    diff.last !== undefined && diff.current !== undefined
+                      ? <span><b>Last:</b> {diff.last} <b>Current:</b> {diff.current}</span>
+                      : JSON.stringify(diff)
+                  }
+                </li>
               ))}
             </ul>
           </div>
@@ -565,13 +587,6 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
                   className="flex-1"
                 >
                   Indices Creation
-                </Button>
-                <Button
-                  variant={selectedAgentType === 'deep_research' ? 'default' : 'outline'}
-                  onClick={() => setSelectedAgentType('deep_research')}
-                  className="flex-1"
-                >
-                  Deep Research
                 </Button>
                 <Button
                   variant={selectedAgentType === 'change_statement' ? 'default' : 'outline'}
