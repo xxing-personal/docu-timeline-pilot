@@ -84,16 +84,15 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
     // This removes patterns like [^article_id_map["..."]] that appear after web links
     processedContent = processedContent.replace(/\[Link to document\]\([^)]+\)\s*\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\)|_(\d+))\]/g, (match, citationId1, citationId2, citationId3) => {
       const citationId = citationId1 || citationId2 || citationId3;
-      const footnoteNumber = citations.get(citationId);
-      // Replace the entire "Link to document + citation" with just a clickable reference
-      return `[📄 View Document](pdf-link:${citationId})`;
+      // Just remove the citation marker, keep the original link
+      return '[Link to document]';
     });
 
     // Append the footnote definitions at the end of the article.
     processedContent += '\n\n---\n\n## Footnotes\n\n';
     
     for (const [citationId, footnoteNumber] of citations.entries()) {
-      // Create clickable footnote with a more descriptive name
+      // Create simple footnote without clickable link
       let displayName: string;
       if (citationId.startsWith('pdf_')) {
         displayName = citationId.replace(/^pdf_\d+_/, ''); // Remove pdf_ prefix and timestamp
@@ -102,14 +101,32 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
       } else {
         displayName = citationId;
       }
-      processedContent += `[^${footnoteNumber}]: [📄 ${displayName}](pdf-link:${citationId})\n\n`;
+      processedContent += `[^${footnoteNumber}]: ${displayName}\n\n`;
     }
 
     return processedContent;
   };
 
-  // Handle PDF link clicks
-  const handlePdfLinkClick = async (citationId: string) => {
+  // Extract citation IDs from article content for PDF viewing
+  const extractCitationIds = (content: string): string[] => {
+    if (!content) return [];
+    
+    const citationRegex = /\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\)|_(\d+))\]/g;
+    const citationIds: string[] = [];
+    let match;
+    
+    while ((match = citationRegex.exec(content)) !== null) {
+      const citationId = match[1] || match[2] || match[3];
+      if (citationId && !citationIds.includes(citationId)) {
+        citationIds.push(citationId);
+      }
+    }
+    
+    return citationIds;
+  };
+
+  // Handle PDF viewing - same as TimelineTab
+  const handleViewPdf = async (citationId: string) => {
     try {
       // Extract the timestamp from citation ID 
       // Handles formats: pdf_1752774703896_xir2ydzhs -> 1752774703896, or just 1752774703896
@@ -153,63 +170,31 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
       );
       
       if (!matchingFile) {
-        console.error('PDF file not found:', {
-          citationId,
-          timestamp,
-          availableFiles: files.map((f: any) => f.filename)
-        });
         toast({
           title: "PDF Not Found",
-          description: `No PDF file found for citation ${citationId}. Available files: ${files.length}`,
+          description: `No PDF file found for citation ${citationId}`,
           variant: "destructive"
         });
         return;
       }
       
-      console.log('Opening PDF:', {
-        citationId,
-        timestamp,
-        matchingFile: matchingFile.filename
-      });
-      
-      // Set the selected PDF and switch to viewer tab (keep right panel on summaries)
+      // Same as TimelineTab - set selected PDF and switch to viewer tab
       setSelectedPdf(matchingFile.filename);
       switchToViewerTab();
       
       toast({
         title: "Opening PDF",
-        description: `Switching to viewer for ${matchingFile.filename}. Right panel stays on Summary tab.`,
+        description: `Switching to viewer for ${matchingFile.filename}`,
       });
       
     } catch (error) {
-      console.error('Error handling PDF link click:', error);
+      console.error('Error viewing PDF:', error);
       toast({
         title: "Error",
         description: "Failed to open PDF. Please try again.",
         variant: "destructive"
       });
     }
-  };
-
-  // Custom renderer for ReactMarkdown to handle PDF links
-  const customComponents = {
-    a: ({ href, children, ...props }: any) => {
-      // Check if this is a PDF link
-      if (href && href.startsWith('pdf-link:')) {
-        const citationId = href.replace('pdf-link:', '');
-        return (
-          <button
-            onClick={() => handlePdfLinkClick(citationId)}
-            className="text-blue-600 hover:text-blue-800 underline cursor-pointer bg-transparent border-none p-0 font-inherit inline"
-            {...props}
-          >
-            {children}
-          </button>
-        );
-      }
-      // Regular links
-      return <a href={href} {...props}>{children}</a>;
-    },
   };
 
   // Fetch research articles from local folder
@@ -452,40 +437,76 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
               </div>
             ) : (
               <div className="h-full flex flex-col">
-                {/* Minimal Article Header */}
-                <div className="mb-4 pb-3 border-b border-slate-200 flex items-center justify-between">
-                  <div className="flex items-center space-x-4 text-sm text-slate-500">
-                    <span>{new Date(selectedArticle.metadata.generated).toLocaleDateString()}</span>
-                    <span>{selectedArticle.metadata.documents_analyzed} documents</span>
+                {/* Article Header with PDF View Buttons */}
+                <div className="mb-4 pb-3 border-b border-slate-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-4 text-sm text-slate-500">
+                      <span>{new Date(selectedArticle.metadata.generated).toLocaleDateString()}</span>
+                      <span>{selectedArticle.metadata.documents_analyzed} documents</span>
+                    </div>
+                    
+                    <div className="flex space-x-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => copyToClipboard(selectedArticle.content, selectedArticle.metadata.title)}
+                      >
+                        <Copy className="w-3 h-3 mr-1" />
+                        Copy
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => exportArticle(selectedArticle.rawContent, selectedArticle.metadata.title)}
+                      >
+                        <Download className="w-3 h-3 mr-1" />
+                        Export
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => deleteArticle(selectedArticle.filename, selectedArticle.metadata.title)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300"
+                      >
+                        <Trash2 className="w-3 h-3 mr-1" />
+                        Delete
+                      </Button>
+                    </div>
                   </div>
                   
-                  <div className="flex space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => copyToClipboard(selectedArticle.content, selectedArticle.metadata.title)}
-                    >
-                      <Copy className="w-3 h-3 mr-1" />
-                      Copy
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => exportArticle(selectedArticle.rawContent, selectedArticle.metadata.title)}
-                    >
-                      <Download className="w-3 h-3 mr-1" />
-                      Export
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => deleteArticle(selectedArticle.filename, selectedArticle.metadata.title)}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300"
-                    >
-                      <Trash2 className="w-3 h-3 mr-1" />
-                      Delete
-                    </Button>
-                  </div>
+                  {/* View PDF Buttons - same as TimelineTab */}
+                  {(() => {
+                    const citationIds = extractCitationIds(selectedArticle.rawContent);
+                    if (citationIds.length > 0) {
+                      return (
+                        <div className="flex flex-wrap gap-2">
+                          <span className="text-sm text-slate-600 mr-2">Referenced PDFs:</span>
+                          {citationIds.map((citationId, index) => {
+                            let displayName: string;
+                            if (citationId.startsWith('pdf_')) {
+                              displayName = citationId.replace(/^pdf_\d+_/, '');
+                            } else if (/^\d+$/.test(citationId)) {
+                              displayName = `Document ${citationId}`;
+                            } else {
+                              displayName = citationId;
+                            }
+                            return (
+                              <Button
+                                key={citationId}
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleViewPdf(citationId)}
+                              >
+                                <Eye className="w-3 h-3 mr-1" />
+                                {displayName}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
 
                 {/* Article Content */}
@@ -497,7 +518,7 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
                   <ScrollArea className="flex-1">
                     <div className="max-w-none">
                       <article className="prose prose-lg prose-gray max-w-none prose-headings:text-gray-900 prose-h1:text-3xl prose-h1:font-bold prose-h1:mb-6 prose-h1:mt-0 prose-h1:pb-3 prose-h1:border-b prose-h1:border-gray-200">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={customComponents}>{selectedArticle.content}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedArticle.content}</ReactMarkdown>
                       </article>
                     </div>
                   </ScrollArea>
