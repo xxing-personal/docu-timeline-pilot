@@ -47,9 +47,9 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
   const processCitations = (markdownContent: string | undefined | null): string => {
     if (!markdownContent) return '';
 
-    // Regex to find custom citations - handles both formats:
-    // [^article_id(some_id_123)] and [^article_id_map["some_id_123"]]
-    const citationRegex = /\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\))\]/g;
+    // Regex to find custom citations - handles multiple formats:
+    // [^article_id(some_id_123)], [^article_id_map["some_id_123"]], and [^article_id_1752774703894]
+    const citationRegex = /\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\)|_(\d+))\]/g;
     
     // A map to store unique citation IDs and their assigned footnote number
     const citations = new Map<string, number>();
@@ -60,8 +60,8 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
     const contentToScan = markdownContent;
     let match;
     while ((match = citationRegex.exec(contentToScan)) !== null) {
-      // Extract citation ID from either format (group 1 for _map[""], group 2 for ())
-      const citationId = match[1] || match[2];
+      // Extract citation ID from any format (group 1 for _map[""], group 2 for (), group 3 for _timestamp)
+      const citationId = match[1] || match[2] || match[3];
       if (!citations.has(citationId)) {
         citations.set(citationId, citationCounter++);
       }
@@ -73,8 +73,8 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
     }
 
     // Replace each custom citation with a standard footnote reference
-    let processedContent = markdownContent.replace(citationRegex, (_match, citationId1, citationId2) => {
-      const citationId = citationId1 || citationId2;
+    let processedContent = markdownContent.replace(citationRegex, (_match, citationId1, citationId2, citationId3) => {
+      const citationId = citationId1 || citationId2 || citationId3;
       const footnoteNumber = citations.get(citationId);
       // Keep standard footnote format for proper markdown rendering
       return `[^${footnoteNumber}]`;
@@ -82,8 +82,8 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
 
     // Remove duplicate citation markers from references section
     // This removes patterns like [^article_id_map["..."]] that appear after web links
-    processedContent = processedContent.replace(/\[Link to document\]\([^)]+\)\s*\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\))\]/g, (match, citationId1, citationId2) => {
-      const citationId = citationId1 || citationId2;
+    processedContent = processedContent.replace(/\[Link to document\]\([^)]+\)\s*\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\)|_(\d+))\]/g, (match, citationId1, citationId2, citationId3) => {
+      const citationId = citationId1 || citationId2 || citationId3;
       const footnoteNumber = citations.get(citationId);
       // Replace the entire "Link to document + citation" with just a clickable reference
       return `[📄 View Document](pdf-link:${citationId})`;
@@ -94,8 +94,15 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
     
     for (const [citationId, footnoteNumber] of citations.entries()) {
       // Create clickable footnote with a more descriptive name
-      const filename = citationId.replace(/^pdf_\d+_/, ''); // Remove pdf_ prefix and timestamp
-      processedContent += `[^${footnoteNumber}]: [📄 ${filename}](pdf-link:${citationId})\n\n`;
+      let displayName: string;
+      if (citationId.startsWith('pdf_')) {
+        displayName = citationId.replace(/^pdf_\d+_/, ''); // Remove pdf_ prefix and timestamp
+      } else if (/^\d+$/.test(citationId)) {
+        displayName = `Document ${citationId}`;
+      } else {
+        displayName = citationId;
+      }
+      processedContent += `[^${footnoteNumber}]: [📄 ${displayName}](pdf-link:${citationId})\n\n`;
     }
 
     return processedContent;
@@ -104,18 +111,32 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
   // Handle PDF link clicks
   const handlePdfLinkClick = async (citationId: string) => {
     try {
-      // Extract the timestamp from citation ID (e.g., pdf_1752774703896_xir2ydzhs -> 1752774703896)
-      const timestampMatch = citationId.match(/pdf_(\d+)_/);
-      if (!timestampMatch) {
+      // Extract the timestamp from citation ID 
+      // Handles formats: pdf_1752774703896_xir2ydzhs -> 1752774703896, or just 1752774703896
+      let timestamp: string;
+      
+      if (citationId.startsWith('pdf_')) {
+        const timestampMatch = citationId.match(/pdf_(\d+)_/);
+        if (!timestampMatch) {
+          toast({
+            title: "Error",
+            description: "Could not extract timestamp from citation ID",
+            variant: "destructive"
+          });
+          return;
+        }
+        timestamp = timestampMatch[1];
+      } else if (/^\d+$/.test(citationId)) {
+        // Citation ID is just the timestamp
+        timestamp = citationId;
+      } else {
         toast({
           title: "Error",
-          description: "Could not extract timestamp from citation ID",
+          description: "Unrecognized citation ID format",
           variant: "destructive"
         });
         return;
       }
-      
-      const timestamp = timestampMatch[1];
       
       // Get list of uploaded files to find the matching PDF
       const response = await fetch(`${getApiBaseUrl()}/files`);
