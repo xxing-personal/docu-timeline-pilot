@@ -47,8 +47,9 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
   const processCitations = (markdownContent: string | undefined | null): string => {
     if (!markdownContent) return '';
 
-    // Regex to find custom citations like [^article_id(some_id_123)]
-    const citationRegex = /\[\^article_id\(([^)]+)\)\]/g;
+    // Regex to find custom citations - handles both formats:
+    // [^article_id(some_id_123)] and [^article_id_map["some_id_123"]]
+    const citationRegex = /\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\))\]/g;
     
     // A map to store unique citation IDs and their assigned footnote number
     const citations = new Map<string, number>();
@@ -59,7 +60,8 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
     const contentToScan = markdownContent;
     let match;
     while ((match = citationRegex.exec(contentToScan)) !== null) {
-      const citationId = match[1];
+      // Extract citation ID from either format (group 1 for _map[""], group 2 for ())
+      const citationId = match[1] || match[2];
       if (!citations.has(citationId)) {
         citations.set(citationId, citationCounter++);
       }
@@ -70,37 +72,91 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
       return markdownContent;
     }
 
-    // Replace each custom citation with a standard Markdown footnote reference.
-    let processedContent = markdownContent.replace(citationRegex, (_match, citationId) => {
+    // Replace each custom citation with a standard footnote reference
+    let processedContent = markdownContent.replace(citationRegex, (_match, citationId1, citationId2) => {
+      const citationId = citationId1 || citationId2;
       const footnoteNumber = citations.get(citationId);
+      // Keep standard footnote format for proper markdown rendering
       return `[^${footnoteNumber}]`;
     });
 
+    // Remove duplicate citation markers from references section
+    // This removes patterns like [^article_id_map["..."]] that appear after web links
+    processedContent = processedContent.replace(/\[Link to document\]\([^)]+\)\s*\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\))\]/g, (match, citationId1, citationId2) => {
+      const citationId = citationId1 || citationId2;
+      const footnoteNumber = citations.get(citationId);
+      // Replace the entire "Link to document + citation" with just a clickable reference
+      return `[📄 View Document](pdf-link:${citationId})`;
+    });
+
     // Append the footnote definitions at the end of the article.
-    processedContent += '\n\n';
+    processedContent += '\n\n---\n\n## Footnotes\n\n';
     
     for (const [citationId, footnoteNumber] of citations.entries()) {
-      // Create clickable footnote with filename as link text
-      const filename = citationId.replace(/^\d+-/, ''); // Remove timestamp prefix if present
-      processedContent += `[^${footnoteNumber}]: [${filename}](pdf-link:${citationId})\n`;
+      // Create clickable footnote with a more descriptive name
+      const filename = citationId.replace(/^pdf_\d+_/, ''); // Remove pdf_ prefix and timestamp
+      processedContent += `[^${footnoteNumber}]: [📄 ${filename}](pdf-link:${citationId})\n\n`;
     }
 
     return processedContent;
   };
 
   // Handle PDF link clicks
-  const handlePdfLinkClick = (citationId: string) => {
-    // Remove timestamp prefix if present to get the actual filename
-    const filename = citationId.replace(/^\d+-/, '');
-    
-    // Set the selected PDF and switch to viewer tab
-    setSelectedPdf(filename);
-    switchToViewerTab();
-    
-    toast({
-      title: "Opening PDF",
-      description: `Switching to viewer for ${filename}`,
-    });
+  const handlePdfLinkClick = async (citationId: string) => {
+    try {
+      // Extract the timestamp from citation ID (e.g., pdf_1752774703896_xir2ydzhs -> 1752774703896)
+      const timestampMatch = citationId.match(/pdf_(\d+)_/);
+      if (!timestampMatch) {
+        toast({
+          title: "Error",
+          description: "Could not extract timestamp from citation ID",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      const timestamp = timestampMatch[1];
+      
+      // Get list of uploaded files to find the matching PDF
+      const response = await fetch(`${getApiBaseUrl()}/files`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch file list');
+      }
+      
+      const data = await response.json();
+      const files = data.files || [];
+      
+      // Find the PDF file that starts with the timestamp
+      const matchingFile = files.find((file: any) => 
+        file.filename.startsWith(timestamp) && file.filename.endsWith('.pdf')
+      );
+      
+      if (!matchingFile) {
+        toast({
+          title: "PDF Not Found",
+          description: `No PDF file found for citation ${citationId}`,
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      // Set the selected PDF and switch to viewer tab
+      setSelectedPdf(matchingFile.filename);
+      switchToViewerTab();
+      
+      toast({
+        title: "Opening PDF",
+        description: `Switching to viewer for ${matchingFile.filename}`,
+      });
+      
+    } catch (error) {
+      console.error('Error handling PDF link click:', error);
+      toast({
+        title: "Error",
+        description: "Failed to open PDF. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   // Custom renderer for ReactMarkdown to handle PDF links
@@ -112,7 +168,7 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
         return (
           <button
             onClick={() => handlePdfLinkClick(citationId)}
-            className="text-blue-600 hover:text-blue-800 underline cursor-pointer bg-transparent border-none p-0 font-inherit"
+            className="text-blue-600 hover:text-blue-800 underline cursor-pointer bg-transparent border-none p-0 font-inherit inline"
             {...props}
           >
             {children}
