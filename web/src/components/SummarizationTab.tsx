@@ -153,15 +153,26 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
       );
       
       if (!matchingFile) {
+        console.error('PDF file not found:', {
+          citationId,
+          timestamp,
+          availableFiles: files.map((f: any) => f.filename)
+        });
         toast({
           title: "PDF Not Found",
-          description: `No PDF file found for citation ${citationId}`,
+          description: `No PDF file found for citation ${citationId}. Available files: ${files.length}`,
           variant: "destructive"
         });
         return;
       }
       
-      // Set the selected PDF and switch to viewer tab
+      console.log('Opening PDF:', {
+        citationId,
+        timestamp,
+        matchingFile: matchingFile.filename
+      });
+      
+      // Set the selected PDF and switch to viewer tab (same as TimelineTab)
       setSelectedPdf(matchingFile.filename);
       switchToViewerTab();
       
