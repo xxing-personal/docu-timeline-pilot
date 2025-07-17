@@ -88,21 +88,7 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
       return '[Link to document]';
     });
 
-    // Append the footnote definitions at the end of the article.
-    processedContent += '\n\n---\n\n## Footnotes\n\n';
-    
-    for (const [citationId, footnoteNumber] of citations.entries()) {
-      // Create simple footnote without clickable link
-      let displayName: string;
-      if (citationId.startsWith('pdf_')) {
-        displayName = citationId.replace(/^pdf_\d+_/, ''); // Remove pdf_ prefix and timestamp
-      } else if (/^\d+$/.test(citationId)) {
-        displayName = `Document ${citationId}`;
-      } else {
-        displayName = citationId;
-      }
-      processedContent += `[^${footnoteNumber}]: ${displayName}\n\n`;
-    }
+    // No footnotes section needed - PDF buttons will be at the bottom
 
     return processedContent;
   };
@@ -474,39 +460,6 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
                     </div>
                   </div>
                   
-                  {/* View PDF Buttons - same as TimelineTab */}
-                  {(() => {
-                    const citationIds = extractCitationIds(selectedArticle.rawContent);
-                    if (citationIds.length > 0) {
-                      return (
-                        <div className="flex flex-wrap gap-2">
-                          <span className="text-sm text-slate-600 mr-2">Referenced PDFs:</span>
-                          {citationIds.map((citationId, index) => {
-                            let displayName: string;
-                            if (citationId.startsWith('pdf_')) {
-                              displayName = citationId.replace(/^pdf_\d+_/, '');
-                            } else if (/^\d+$/.test(citationId)) {
-                              displayName = `Document ${citationId}`;
-                            } else {
-                              displayName = citationId;
-                            }
-                            return (
-                              <Button
-                                key={citationId}
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleViewPdf(citationId)}
-                              >
-                                <Eye className="w-3 h-3 mr-1" />
-                                {displayName}
-                              </Button>
-                            );
-                          })}
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
                 </div>
 
                 {/* Article Content */}
@@ -520,6 +473,43 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
                       <article className="prose prose-lg prose-gray max-w-none prose-headings:text-gray-900 prose-h1:text-3xl prose-h1:font-bold prose-h1:mb-6 prose-h1:mt-0 prose-h1:pb-3 prose-h1:border-b prose-h1:border-gray-200">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedArticle.content}</ReactMarkdown>
                       </article>
+                      
+                      {/* PDF View Buttons at bottom */}
+                      {(() => {
+                        const citationIds = extractCitationIds(selectedArticle.rawContent);
+                        if (citationIds.length > 0) {
+                          return (
+                            <div className="mt-8 pt-6 border-t border-slate-200">
+                              <h3 className="text-lg font-semibold text-slate-800 mb-4">Referenced Documents</h3>
+                              <div className="flex flex-wrap gap-3">
+                                {citationIds.map((citationId) => {
+                                  let displayName: string;
+                                  if (citationId.startsWith('pdf_')) {
+                                    displayName = citationId.replace(/^pdf_\d+_/, '');
+                                  } else if (/^\d+$/.test(citationId)) {
+                                    displayName = `Document ${citationId}`;
+                                  } else {
+                                    displayName = citationId;
+                                  }
+                                  return (
+                                    <Button
+                                      key={citationId}
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleViewPdf(citationId)}
+                                      className="flex items-center gap-2"
+                                    >
+                                      <Eye className="w-4 h-4" />
+                                      View {displayName}
+                                    </Button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   </ScrollArea>
                 )}
