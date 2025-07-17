@@ -48,8 +48,8 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
     if (!markdownContent) return '';
 
     // Regex to find custom citations - handles multiple formats:
-    // [^article_id(some_id_123)], [^article_id_map["some_id_123"]], and [^article_id_1752774703894]
-    const citationRegex = /\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\)|_(\d+))\]/g;
+    // [^article_id(some_id_123)], [^article_id_map["some_id_123"]], [^article_id_1752774703894], and [^article_id_1752774703897_szq3xkma3]
+    const citationRegex = /\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\)|_(\d+(?:_[a-zA-Z0-9]+)?))\]/g;
     
     // A map to store unique citation IDs and their assigned footnote number
     const citations = new Map<string, number>();
@@ -97,7 +97,7 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
   const extractCitationIds = (content: string): string[] => {
     if (!content) return [];
     
-    const citationRegex = /\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\)|_(\d+))\]/g;
+    const citationRegex = /\[\^article_id(?:_map\["([^"]+)"\]|\(([^)]+)\)|_(\d+(?:_[a-zA-Z0-9]+)?))\]/g;
     const citationIds: string[] = [];
     let match;
     
@@ -115,7 +115,7 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
   const handleViewPdf = async (citationId: string) => {
     try {
       // Extract the timestamp from citation ID 
-      // Handles formats: pdf_1752774703896_xir2ydzhs -> 1752774703896, or just 1752774703896
+      // Handles formats: pdf_1752774703896_xir2ydzhs -> 1752774703896, 1752774703896 -> 1752774703896, 1752774703897_szq3xkma3 -> 1752774703897
       let timestamp: string;
       
       if (citationId.startsWith('pdf_')) {
@@ -132,6 +132,18 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
       } else if (/^\d+$/.test(citationId)) {
         // Citation ID is just the timestamp
         timestamp = citationId;
+      } else if (/^\d+_[a-zA-Z0-9]+$/.test(citationId)) {
+        // Citation ID is like 1752774703897_szq3xkma3 - extract the timestamp part
+        const timestampMatch = citationId.match(/^(\d+)_/);
+        if (!timestampMatch) {
+          toast({
+            title: "Error",
+            description: "Could not extract timestamp from citation ID",
+            variant: "destructive"
+          });
+          return;
+        }
+        timestamp = timestampMatch[1];
       } else {
         toast({
           title: "Error",
@@ -488,6 +500,10 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
                                     displayName = citationId.replace(/^pdf_\d+_/, '');
                                   } else if (/^\d+$/.test(citationId)) {
                                     displayName = `Document ${citationId}`;
+                                  } else if (/^\d+_[a-zA-Z0-9]+$/.test(citationId)) {
+                                    // Extract the suffix after the timestamp for display
+                                    const suffixMatch = citationId.match(/^\d+_([a-zA-Z0-9]+)$/);
+                                    displayName = suffixMatch ? suffixMatch[1] : citationId;
                                   } else {
                                     displayName = citationId;
                                   }
