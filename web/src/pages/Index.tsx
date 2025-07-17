@@ -7,6 +7,7 @@ const Index = () => {
   const [selectedPdf, setSelectedPdf] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [leftPaneActiveTab, setLeftPaneActiveTab] = useState('pdfs');
+  const [rightPaneActiveTab, setRightPaneActiveTab] = useState('timeline');
 
   const switchToViewerTab = () => {
     setLeftPaneActiveTab('viewer');
@@ -32,6 +33,8 @@ const Index = () => {
             uploadedFiles={uploadedFiles}
             setSelectedPdf={setSelectedPdf}
             switchToViewerTab={switchToViewerTab}
+            activeTab={rightPaneActiveTab}
+            setActiveTab={setRightPaneActiveTab}
           />
         </ResizablePanel>
       </ResizablePanelGroup>

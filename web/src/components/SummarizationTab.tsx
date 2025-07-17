@@ -172,13 +172,13 @@ const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: 
         matchingFile: matchingFile.filename
       });
       
-      // Set the selected PDF and switch to viewer tab (same as TimelineTab)
+      // Set the selected PDF and switch to viewer tab (keep right panel on summaries)
       setSelectedPdf(matchingFile.filename);
       switchToViewerTab();
       
       toast({
         title: "Opening PDF",
-        description: `Switching to viewer for ${matchingFile.filename}`,
+        description: `Switching to viewer for ${matchingFile.filename}. Right panel stays on Summary tab.`,
       });
       
     } catch (error) {

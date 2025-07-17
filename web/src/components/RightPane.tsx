@@ -11,10 +11,11 @@ interface RightPaneProps {
   uploadedFiles: File[];
   setSelectedPdf: (pdf: string | null) => void;
   switchToViewerTab: () => void;
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
 }
 
-const RightPane = ({ selectedPdf, uploadedFiles, setSelectedPdf, switchToViewerTab }: RightPaneProps) => {
-  const [activeTab, setActiveTab] = useState('timeline');
+const RightPane = ({ selectedPdf, uploadedFiles, setSelectedPdf, switchToViewerTab, activeTab, setActiveTab }: RightPaneProps) => {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-50 to-white">
