@@ -401,55 +401,55 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
   };
 
   // Show empty state when there are no agent queues
-  if (agentQueues.length === 0 && !loading) {
-    return (
-      <div className="h-full flex items-center justify-center p-8">
-        <div className="text-center">
-          <Sparkles className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-slate-600 mb-2">No Agent Queues</h3>
-          <p className="text-slate-500 mb-4">Start an agent to analyze your documents</p>
-          <Button onClick={() => setAgentDialogOpen(true)} className="flex items-center gap-2">
-            <Plus className="w-4 h-4" />
-            Start Agent
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const showEmptyState = agentQueues.length === 0 && !loading;
 
   return (
     <div className="h-full p-6">
-      <div className="mb-6 flex justify-between items-center">
-        <div>
-          <h3 className="text-lg font-semibold text-slate-800 mb-2">Agent Task Queues</h3>
-          <p className="text-sm text-slate-600">
-            Monitor and manage your AI agent processing queues
-          </p>
+      {showEmptyState ? (
+        <div className="h-full flex items-center justify-center p-8">
+          <div className="text-center">
+            <Sparkles className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-slate-600 mb-2">No Agent Queues</h3>
+            <p className="text-slate-500 mb-4">Start an agent to analyze your documents</p>
+            <Button onClick={() => setAgentDialogOpen(true)} className="flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              Start Agent
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => fetchAgentQueues(true)}
-            disabled={loading}
-          >
-            <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          <Button 
-            size="sm" 
-            onClick={() => setAgentDialogOpen(true)}
-            className="flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            New Agent
-          </Button>
-        </div>
-      </div>
+      ) : (
+        <>
+          <div className="mb-6 flex justify-between items-center">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-800 mb-2">Agent Task Queues</h3>
+              <p className="text-sm text-slate-600">
+                Monitor and manage your AI agent processing queues
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => fetchAgentQueues(true)}
+                disabled={loading}
+              >
+                <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Button 
+                size="sm" 
+                onClick={() => setAgentDialogOpen(true)}
+                className="flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                New Agent
+              </Button>
+            </div>
+          </div>
 
-      <ScrollArea className="h-[calc(100%-120px)]">
-        <div className="space-y-4">
-          {agentQueues.map((queue) => {
+          <ScrollArea className="h-[calc(100%-120px)]">
+            <div className="space-y-4">
+              {agentQueues.map((queue) => {
             const queueStatus = getQueueStatus(queue);
             
             return (
@@ -582,8 +582,10 @@ const AgentTab = ({ uploadedFiles }: AgentTabProps) => {
               </Card>
             );
           })}
-        </div>
-      </ScrollArea>
+            </div>
+          </ScrollArea>
+        </>
+      )}
 
       {/* Agent Creation Dialog */}
       <Dialog open={agentDialogOpen} onOpenChange={setAgentDialogOpen}>

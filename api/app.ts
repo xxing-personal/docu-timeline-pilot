@@ -20,7 +20,7 @@ app.use(express.json());
 // Initialize services
 const databaseService = new DatabaseService();
 const pdfProcessor = new PdfProcessor();
-const queueService = new PDFQueueService(pdfProcessor, databaseService);
+const queueService = new PDFQueueService(pdfProcessor, databaseService, 3);
 const chatService = new ChatService();
 const indicesDatabaseService = new IndicesDatabaseService();
 
@@ -588,68 +588,6 @@ app.post('/tasks/:taskId/regenerate', async (req, res) => {
   }
 });
 
-app.post('/tasks/:taskId/edit-score', async (req, res) => {
-  try {
-    const taskId = req.params.taskId;
-    const { scores } = req.body as { scores: Record<string, number> };
-    
-    if (!scores || typeof scores !== 'object') {
-      res.status(400).json({ error: 'scores object is required' });
-      return;
-    }
-    
-    // Validate scores (should be between 0 and 1)
-    for (const [key, value] of Object.entries(scores)) {
-      if (typeof value !== 'number' || value < 0 || value > 1) {
-        res.status(400).json({ error: `Score for ${key} must be a number between 0 and 1` });
-        return;
-      }
-    }
-    
-    const task = await queueService.getTask(taskId);
-    if (!task) {
-      res.status(404).json({ error: 'Task not found' });
-      return;
-    }
-    
-    if (task.status !== 'completed') {
-      res.status(400).json({ error: 'Can only edit scores for completed tasks' });
-      return;
-    }
-    
-    // Update the analysis scores in the task result
-    if (!task.result) {
-      res.status(400).json({ error: 'Task has no result to update' });
-      return;
-    }
-    
-    const updatedResult = {
-      ...task.result,
-      metadata: {
-        ...task.result.metadata,
-        analysisScores: {
-          ...(task.result.metadata?.analysisScores || {}),
-          ...scores
-        }
-      }
-    };
-    
-    const success = await queueService.updateTaskResult(taskId, updatedResult);
-    
-    if (success) {
-      res.json({ 
-        message: 'Scores updated successfully',
-        taskId: taskId,
-        updatedScores: scores
-      });
-    } else {
-      res.status(500).json({ error: 'Failed to update scores' });
-    }
-  } catch (error) {
-    console.error('Edit score error:', error);
-    res.status(500).json({ error: 'Failed to edit score' });
-  }
-});
 
 // Chat endpoint
 app.post('/chat', async (req, res) => {
@@ -979,6 +917,44 @@ app.get('/api/research-articles/:filename', async (req, res) => {
   } catch (error) {
     console.error('Error serving research article:', error);
     res.status(500).json({ error: 'Failed to serve research article' });
+  }
+});
+
+// DELETE endpoint for research articles
+app.delete('/api/research-articles/:filename', async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const path = require('path');
+    const fs = require('fs/promises');
+    
+    // Validate filename to prevent directory traversal
+    if (filename.includes('..') || filename.includes('/') || !filename.endsWith('.md')) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+    
+    const articlesDir = path.join(__dirname, 'research-articles');
+    const filepath = path.join(articlesDir, filename);
+    
+    try {
+      // Check if file exists before trying to delete
+      await fs.access(filepath);
+      
+      // Delete the file
+      await fs.unlink(filepath);
+      
+      res.json({
+        message: 'Article deleted successfully',
+        filename
+      });
+    } catch (deleteError: any) {
+      if (deleteError.code === 'ENOENT') {
+        return res.status(404).json({ error: 'Article not found' });
+      }
+      throw deleteError;
+    }
+  } catch (error) {
+    console.error('Error deleting research article:', error);
+    res.status(500).json({ error: 'Failed to delete research article' });
   }
 });
 

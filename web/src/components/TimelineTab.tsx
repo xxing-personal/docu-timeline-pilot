@@ -27,7 +27,6 @@ import { getApiBaseUrl } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 interface PdfTask {
@@ -80,7 +79,6 @@ interface SortableTaskItemProps {
   canShowMenu: boolean;
   onChangeTimestamp: (task: PdfTask) => void;
   onRegenerate: (task: PdfTask) => void;
-  onEditScore: (task: PdfTask) => void;
 }
 
 const SortableTaskItem = ({ 
@@ -94,8 +92,7 @@ const SortableTaskItem = ({
   switchToViewerTab,
   canShowMenu,
   onChangeTimestamp,
-  onRegenerate,
-  onEditScore
+  onRegenerate
 }: SortableTaskItemProps) => {
   const {
     attributes,
@@ -122,9 +119,7 @@ const SortableTaskItem = ({
       const jsonData = JSON.parse(summary);
       return {
         oneSentenceSummary: jsonData.ONE_SENTENCE_SUMMARY,
-        bulletPoints: jsonData.BULLET_POINTS || [],
-        confidenceIndex: jsonData.CONFIDENCE_INDEX?.toString(),
-        sentimentIndex: jsonData.SENTIMENT_INDEX?.toString()
+        bulletPoints: jsonData.BULLET_POINTS || []
       };
     } catch (e) {
       // Fallback to old line-based parsing format
@@ -132,8 +127,6 @@ const SortableTaskItem = ({
       const result: {
         oneSentenceSummary?: string;
         bulletPoints?: string[];
-        confidenceIndex?: string;
-        sentimentIndex?: string;
       } = {};
 
       let currentSection = '';
@@ -151,12 +144,6 @@ const SortableTaskItem = ({
         } else if (trimmedLine.startsWith('BULLET_POINTS:')) {
           currentSection = 'bulletPoints';
           bulletPoints = [];
-        } else if (trimmedLine.startsWith('CONFIDENCE_INDEX:')) {
-          result.confidenceIndex = trimmedLine.replace('CONFIDENCE_INDEX:', '').trim();
-          currentSection = '';
-        } else if (trimmedLine.startsWith('SENTIMENT_INDEX:')) {
-          result.sentimentIndex = trimmedLine.replace('SENTIMENT_INDEX:', '').trim();
-          currentSection = '';
         } else if (currentSection === 'bulletPoints' && trimmedLine.startsWith('•')) {
           bulletPoints.push(trimmedLine.replace('•', '').trim());
         }
@@ -281,19 +268,6 @@ const SortableTaskItem = ({
               </div>
             )}
 
-            {/* Analysis Scores (dynamic) */}
-            {task.result?.metadata?.analysisScores && Object.keys(task.result.metadata.analysisScores).length > 0 && (
-              <div className="flex flex-wrap gap-4 text-xs">
-                {Object.entries(task.result.metadata.analysisScores).map(([key, value]) => (
-                  <div key={key} className="flex items-center space-x-1">
-                    <span className="text-slate-600">{key.charAt(0).toUpperCase() + key.slice(1)}:</span>
-                    <span className="font-medium text-slate-800">
-                      {(Number(value) * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
         
@@ -325,9 +299,6 @@ const SortableTaskItem = ({
                 <DropdownMenuItem onClick={() => onRegenerate(task)}>
                   Regenerate Summary
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onEditScore(task)}>
-                  Edit Score
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -346,10 +317,8 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
   // Dialog states
   const [timestampDialogOpen, setTimestampDialogOpen] = useState(false);
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
-  const [scoreDialogOpen, setScoreDialogOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<PdfTask | null>(null);
   const [newTimestamp, setNewTimestamp] = useState('');
-  const [editingScores, setEditingScores] = useState<Record<string, number>>({});
   const [actionLoading, setActionLoading] = useState(false);
 
   const sensors = useSensors(
@@ -591,11 +560,6 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
     setRegenerateDialogOpen(true);
   };
   
-  const onEditScore = (task: PdfTask) => {
-    setSelectedTask(task);
-    setEditingScores(task.result?.metadata?.analysisScores || {});
-    setScoreDialogOpen(true);
-  };
 
   // API call handlers
   const handleChangeTimestamp = async () => {
@@ -649,38 +613,6 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
     }
   };
 
-  const handleEditScore = async () => {
-    if (!selectedTask) return;
-    
-    setActionLoading(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/tasks/${selectedTask.id}/edit-score`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scores: editingScores })
-      });
-      
-      if (response.ok) {
-        setScoreDialogOpen(false);
-        fetchTasks(false); // Refresh tasks
-      } else {
-        const error = await response.json();
-        alert(`Failed to edit scores: ${error.error}`);
-      }
-    } catch (error) {
-      console.error('Error editing scores:', error);
-      alert('Failed to edit scores');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const updateScore = (key: string, value: number[]) => {
-    setEditingScores(prev => ({
-      ...prev,
-      [key]: value[0]
-    }));
-  };
 
   // Show empty state when there are no tasks (regardless of loading state from auto-polling)
   if (tasks.length === 0) {
@@ -750,7 +682,6 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
                       canShowMenu={canShowMenu}
                       onChangeTimestamp={onChangeTimestamp}
                       onRegenerate={onRegenerate}
-                      onEditScore={onEditScore}
                     />
                   );
                 })}
@@ -809,39 +740,6 @@ const TimelineTab = ({ uploadedFiles, selectedPdf, setSelectedPdf, switchToViewe
         </DialogContent>
       </Dialog>
 
-      {/* Score Edit Dialog */}
-      <Dialog open={scoreDialogOpen} onOpenChange={setScoreDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Analysis Scores</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {Object.entries(editingScores).map(([key, value]) => (
-              <div key={key} className="space-y-2">
-                <Label className="text-sm font-medium">
-                  {key.charAt(0).toUpperCase() + key.slice(1)}: {(value * 100).toFixed(0)}%
-                </Label>
-                <Slider
-                  value={[value]}
-                  onValueChange={(val) => updateScore(key, val)}
-                  max={1}
-                  min={0}
-                  step={0.01}
-                  className="w-full"
-                />
-              </div>
-            ))}
-            <div className="flex justify-end space-x-2">
-              <Button variant="outline" onClick={() => setScoreDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleEditScore} disabled={actionLoading}>
-                {actionLoading ? 'Updating...' : 'Update'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

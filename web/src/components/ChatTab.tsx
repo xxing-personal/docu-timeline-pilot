@@ -492,7 +492,16 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       
     } catch (error) {
       console.error('Agent initiation error:', error);
-      alert('Failed to start agent. Please try again.');
+      
+      // Add error message to chat instead of popup
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        content: `❌ Failed to start agent. Error: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
+        isUser: false,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setAgentLoading(false);
     }

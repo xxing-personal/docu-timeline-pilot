@@ -100,9 +100,7 @@ ${truncatedText}
 Please respond with a JSON object containing:
 1. ONE_SENTENCE_SUMMARY: A concise one-sentence summary of the document
 2. BULLET_POINTS: Array of 3-6 key bullet points highlighting main topics and important details
-3. CONFIDENCE_INDEX: A number between 0-1 indicating your confidence in the accuracy of your analysis (0 = very uncertain, 1 = very confident)
-4. SENTIMENT_INDEX: A number between 0-1 indicating the overall sentiment of the document (0 = very negative, 0.5 = neutral, 1 = very positive)
-5. INFERRED_TIMESTAMP: If you can identify a clear date or timestamp from the document content (like "created on", "dated", "published", "issued", etc.), provide it in ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ). If no clear timestamp is found, respond with "NOT_FOUND".
+3. INFERRED_TIMESTAMP: If you can identify a clear date or timestamp from the document content (like "created on", "dated", "published", "issued", etc.), provide it in ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ). If no clear timestamp is found, respond with "NOT_FOUND".
 
 Example response:
 {
@@ -112,8 +110,6 @@ Example response:
     "New product launches contributed significantly to growth",
     "Market expansion into emerging markets shows promise"
   ],
-  "CONFIDENCE_INDEX": 0.9,
-  "SENTIMENT_INDEX": 0.7,
   "INFERRED_TIMESTAMP": "2024-03-15T10:00:00.000Z"
 }
 
@@ -224,34 +220,7 @@ Respond only with the JSON object, no additional text or markdown formatting.`;
         console.log(`[PDF PROCESSOR] No valid timestamp inferred for ${task.filename}`);
       }
 
-      // Extract analysis scores from JSON
-      const analysisScores: Record<string, number> = {};
-      if (analysis.CONFIDENCE_INDEX !== undefined) {
-        analysisScores.confidence = analysis.CONFIDENCE_INDEX;
-      }
-      if (analysis.SENTIMENT_INDEX !== undefined) {
-        analysisScores.sentiment = analysis.SENTIMENT_INDEX;
-      }
-      
-      // Save indices to the indices database if any were found
-      console.log(`[PDF PROCESSOR] Found ${Object.keys(analysisScores).length} analysis scores for ${task.filename}:`, analysisScores);
-      if (Object.keys(analysisScores).length > 0) {
-        try {
-          console.log(`[PDF PROCESSOR] Attempting to save indices to database for ${task.filename}`);
-          await this.indicesDb.addPdfProcessingIndex(
-            task.id,
-            task.filename,
-            analysisScores,
-            inferredTimestamp || undefined,
-            task.id
-          );
-          console.log(`[PDF PROCESSOR] Successfully saved indices to database for ${task.filename}`);
-        } catch (error) {
-          console.error(`[PDF PROCESSOR] Failed to save indices to database for ${task.filename}:`, error);
-        }
-      } else {
-        console.log(`[PDF PROCESSOR] No analysis scores found for ${task.filename}`);
-      }
+      // Note: Analysis scores (confidence/sentiment indices) have been removed from PDF processing
       
       // Get page count from pdf-parse results
       const pdfBuffer = await fs.readFile(task.path);
@@ -271,8 +240,7 @@ Respond only with the JSON object, no additional text or markdown formatting.`;
           pdfInfo: pdfData.info || {},
           textLength: extractedText.length,
           summaryLength: JSON.stringify(analysis).length,
-          inferredTimestamp: inferredTimestamp || null,
-          analysisScores
+          inferredTimestamp: inferredTimestamp || null
         }
       };
       

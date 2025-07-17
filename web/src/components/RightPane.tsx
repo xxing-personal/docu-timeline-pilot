@@ -56,7 +56,7 @@ const RightPane = ({ selectedPdf, uploadedFiles, setSelectedPdf, switchToViewerT
         </TabsContent>
         
         <TabsContent value="summaries" className="h-full m-0 overflow-y-auto">
-          <SummarizationTab uploadedFiles={uploadedFiles} />
+          <SummarizationTab uploadedFiles={uploadedFiles} setSelectedPdf={setSelectedPdf} switchToViewerTab={switchToViewerTab} />
         </TabsContent>
       </Tabs>
     </div>

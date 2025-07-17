@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Copy, Download, Eye, Search, FileText, RefreshCw, Clock, BookOpen, File } from 'lucide-react';
+import { Copy, Download, Eye, Search, FileText, RefreshCw, Clock, BookOpen, File, Trash2 } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -12,6 +12,8 @@ import remarkGfm from 'remark-gfm';
 
 interface SummarizationTabProps {
   uploadedFiles: File[];
+  setSelectedPdf: (pdf: string | null) => void;
+  switchToViewerTab: () => void;
 }
 
 interface ResearchArticle {
@@ -34,7 +36,7 @@ interface ArticleContent {
   rawContent: string;
 }
 
-const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
+const SummarizationTab = ({ uploadedFiles, setSelectedPdf, switchToViewerTab }: SummarizationTabProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [articles, setArticles] = useState<ResearchArticle[]>([]);
   const [selectedArticle, setSelectedArticle] = useState<ArticleContent | null>(null);
@@ -78,11 +80,48 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
     processedContent += '\n\n';
     
     for (const [citationId, footnoteNumber] of citations.entries()) {
-      // This creates the footnote definition that remark-gfm will use.
-      processedContent += `[^${footnoteNumber}]: \`${citationId}\`\n`;
+      // Create clickable footnote with filename as link text
+      const filename = citationId.replace(/^\d+-/, ''); // Remove timestamp prefix if present
+      processedContent += `[^${footnoteNumber}]: [${filename}](pdf-link:${citationId})\n`;
     }
 
     return processedContent;
+  };
+
+  // Handle PDF link clicks
+  const handlePdfLinkClick = (citationId: string) => {
+    // Remove timestamp prefix if present to get the actual filename
+    const filename = citationId.replace(/^\d+-/, '');
+    
+    // Set the selected PDF and switch to viewer tab
+    setSelectedPdf(filename);
+    switchToViewerTab();
+    
+    toast({
+      title: "Opening PDF",
+      description: `Switching to viewer for ${filename}`,
+    });
+  };
+
+  // Custom renderer for ReactMarkdown to handle PDF links
+  const customComponents = {
+    a: ({ href, children, ...props }: any) => {
+      // Check if this is a PDF link
+      if (href && href.startsWith('pdf-link:')) {
+        const citationId = href.replace('pdf-link:', '');
+        return (
+          <button
+            onClick={() => handlePdfLinkClick(citationId)}
+            className="text-blue-600 hover:text-blue-800 underline cursor-pointer bg-transparent border-none p-0 font-inherit"
+            {...props}
+          >
+            {children}
+          </button>
+        );
+      }
+      // Regular links
+      return <a href={href} {...props}>{children}</a>;
+    },
   };
 
   // Fetch research articles from local folder
@@ -159,6 +198,42 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
       title: "Export complete",
       description: `Research article exported as ${a.download}`
     });
+  };
+
+  const deleteArticle = async (filename: string, title: string) => {
+    const confirmed = window.confirm(`Are you sure you want to delete the article "${title}"? This action cannot be undone.`);
+    
+    if (!confirmed) return;
+    
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/research-articles/${filename}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete article');
+      }
+      
+      toast({
+        title: "Article deleted",
+        description: `Research article "${title}" has been deleted successfully.`
+      });
+      
+      // Clear selected article if it was the one being deleted
+      if (selectedArticle?.filename === filename) {
+        setSelectedArticle(null);
+      }
+      
+      // Refresh the articles list
+      fetchArticles();
+    } catch (error) {
+      console.error('Error deleting article:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete the article. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   const refreshResults = () => {
@@ -313,6 +388,15 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
                       <Download className="w-3 h-3 mr-1" />
                       Export
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => deleteArticle(selectedArticle.filename, selectedArticle.metadata.title)}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300"
+                    >
+                      <Trash2 className="w-3 h-3 mr-1" />
+                      Delete
+                    </Button>
                   </div>
                 </div>
 
@@ -325,7 +409,7 @@ const SummarizationTab = ({ uploadedFiles }: SummarizationTabProps) => {
                   <ScrollArea className="flex-1">
                     <div className="max-w-none">
                       <article className="prose prose-lg prose-gray max-w-none prose-headings:text-gray-900 prose-h1:text-3xl prose-h1:font-bold prose-h1:mb-6 prose-h1:mt-0 prose-h1:pb-3 prose-h1:border-b prose-h1:border-gray-200">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedArticle.content}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={customComponents}>{selectedArticle.content}</ReactMarkdown>
                       </article>
                     </div>
                   </ScrollArea>
