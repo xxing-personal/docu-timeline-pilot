@@ -371,9 +371,35 @@ router.delete('/queue/:queueKey', async (req, res) => {
 router.post('/queue/:queueKey/restart/:taskId', async (req, res) => {
   const { queueKey, taskId } = req.params;
   try {
-    const queue = agentQueues[queueKey];
+    let queue = agentQueues[queueKey];
+    
+    // If queue is not found in memory, try to load it from database
     if (!queue) {
-      return res.status(404).json({ error: 'Queue not found in memory. It may have been completed or failed prior to server restart.' });
+      console.log(`[AGENT SERVICE] Queue ${queueKey} not found in memory, attempting to load from database...`);
+      
+      const queueMetadata = await queueDb.getQueue(queueKey);
+      if (!queueMetadata) {
+        return res.status(404).json({ error: 'Queue not found in database.' });
+      }
+      
+      if (queueMetadata.status !== 'active') {
+        return res.status(400).json({ error: `Queue is not active (status: ${queueMetadata.status})` });
+      }
+      
+      // Reconstruct the queue from database
+      const memory = new Memory(`agent-${queueMetadata.type}-${Date.now()}`);
+      
+      if (queueMetadata.type === 'indices') {
+        queue = new IndicesAgentQueue(memory, queueMetadata.id);
+      } else if (queueMetadata.type === 'change_statement') {
+        queue = new ChangeOfStatementAgentQueue(memory, queueMetadata.id);
+      } else {
+        queue = new AgentQueue(memory, queueMetadata.id);
+      }
+      
+      // Add to in-memory cache
+      agentQueues[queueKey] = queue;
+      console.log(`[AGENT SERVICE] Successfully loaded queue ${queueKey} from database`);
     }
     
     // Restart tasks from the specified one

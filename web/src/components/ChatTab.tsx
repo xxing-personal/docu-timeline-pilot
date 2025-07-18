@@ -42,6 +42,18 @@ interface Message {
   isUser: boolean;
   timestamp: Date;
   mentions?: string[];
+  isAgentProgress?: boolean;
+  agentSteps?: AgentStep[];
+  agentStatus?: 'running' | 'completed' | 'failed';
+}
+
+interface AgentStep {
+  id: string;
+  description: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  startTime?: Date;
+  endTime?: Date;
+  details?: string;
 }
 
 interface ChatSession {
@@ -103,6 +115,13 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
     fetchTasks();
     loadExistingMessages();
     fetchAgentQueues();
+    
+    // Refresh tasks every 5 seconds to get newly processed PDFs
+    const interval = setInterval(() => {
+      fetchTasks();
+    }, 5000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   // Auto-scroll to bottom when messages change
@@ -114,6 +133,16 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       }
     }
   }, [messages]);
+
+  // Auto-scroll selected mention into view
+  useEffect(() => {
+    if (showMentions && selectedMentionIndex >= 0) {
+      const selectedEl = document.querySelector(`[data-mention-index="${selectedMentionIndex}"]`);
+      if (selectedEl) {
+        selectedEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [selectedMentionIndex, showMentions]);
 
   const fetchTasks = async () => {
     try {
@@ -250,8 +279,10 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       const query = atMatch[1].toLowerCase();
       const suggestions: MentionSuggestion[] = [];
       
-      // Add @all option
-      if ('all'.includes(query)) {
+      console.log('@ detected, query:', query, 'tasks:', tasks.length); // Debug log
+      
+      // Add @all option - show when query is empty or matches
+      if (query === '' || 'all'.includes(query)) {
         suggestions.push({
           type: 'all',
           display: '@all - All documents',
@@ -262,7 +293,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       // Add document suggestions
       tasks.forEach(task => {
         const filename = task.filename.toLowerCase();
-        if (filename.includes(query)) {
+        if (query === '' || filename.includes(query)) {
           suggestions.push({
             type: 'document',
             display: `@${task.filename}`,
@@ -272,6 +303,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
         }
       });
       
+      console.log('Mention suggestions:', suggestions); // Debug log
       setMentionSuggestions(suggestions);
       setShowMentions(suggestions.length > 0);
       setSelectedMentionIndex(0);
@@ -327,6 +359,59 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
     }
   };
 
+  const saveMessageToDatabase = async (message: Message, sessionId: string | null) => {
+    try {
+      await fetch(`${API_BASE_URL}/chat/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId,
+          message: {
+            id: message.id,
+            content: message.content,
+            isUser: message.isUser,
+            timestamp: message.timestamp,
+            mentions: message.mentions,
+            isAgentProgress: message.isAgentProgress,
+            agentSteps: message.agentSteps,
+            agentStatus: message.agentStatus
+          }
+        }),
+      });
+    } catch (error) {
+      console.error('Error saving message to database:', error);
+    }
+  };
+
+  const updateAgentProgress = async (messageId: string, newSteps: AgentStep[], status: 'running' | 'completed' | 'failed') => {
+    // Update local state
+    setMessages(prev => prev.map(msg => 
+      msg.id === messageId ? {
+        ...msg,
+        agentSteps: newSteps,
+        agentStatus: status
+      } : msg
+    ));
+
+    // Save to database
+    try {
+      await fetch(`${API_BASE_URL}/chat/messages/${messageId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          agentSteps: newSteps,
+          agentStatus: status
+        }),
+      });
+    } catch (error) {
+      console.error('Error updating agent progress:', error);
+    }
+  };
+
   const extractMentions = (content: string): string[] => {
     const mentions: string[] = [];
     const mentionRegex = /@(\w+)/g;
@@ -373,6 +458,9 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
 
     setMessages(prev => [...prev, userMessage]);
 
+    // Save user message to database
+    await saveMessageToDatabase(userMessage, currentSessionId);
+
     // Add a loading message
     const loadingMessage: Message = {
       id: (Date.now() + 1).toString(),
@@ -413,6 +501,9 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       setMessages(prev => prev.map(msg => 
         msg.id === loadingMessage.id ? aiMessage : msg
       ));
+
+      // Save AI response to database
+      await saveMessageToDatabase(aiMessage, currentSessionId);
 
       // Refresh sessions to update message count
       fetchSessions();
@@ -461,18 +552,56 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
 
       const data = await response.json();
       
-      // Add agent message to chat
+      // Create initial agent steps
+      const initialSteps: AgentStep[] = [
+        {
+          id: '1',
+          description: 'Initializing agent',
+          status: 'completed',
+          startTime: new Date(),
+          endTime: new Date()
+        },
+        {
+          id: '2',
+          description: 'Analyzing uploaded documents',
+          status: 'running',
+          startTime: new Date()
+        },
+        {
+          id: '3',
+          description: 'Processing with AI',
+          status: 'pending'
+        },
+        {
+          id: '4',
+          description: 'Generating research article',
+          status: 'pending'
+        },
+        {
+          id: '5',
+          description: 'Finalizing results',
+          status: 'pending'
+        }
+      ];
+      
+      // Add agent message to chat with progress tracking
       const agentMessage: Message = {
         id: Date.now().toString(),
         content: `🤖 Started ${
           selectedAgentType === 'indices' ? 'Indices Creation' : 
           selectedAgentType === 'change_statement' ? 'Change of Statement' : 'Unknown'
-        } agent with query: "${query}". Processing documents...`,
+        } agent with query: "${query}"`,
         isUser: false,
-        timestamp: new Date()
+        timestamp: new Date(),
+        isAgentProgress: true,
+        agentSteps: initialSteps,
+        agentStatus: 'running'
       };
       
       setMessages(prev => [...prev, agentMessage]);
+      
+      // Save message to database
+      await saveMessageToDatabase(agentMessage, currentSessionId);
       
       // Store queue info
       const newQueue: AgentQueue = {
@@ -508,6 +637,8 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
   };
 
   const monitorAgentQueue = async (queueKey: string) => {
+    let stepIndex = 2; // Start from step 2 (document analysis)
+    
     // Poll the queue every 2 seconds
     const interval = setInterval(async () => {
       try {
@@ -520,6 +651,51 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
             q.queueKey === queueKey ? { ...q, tasks: data.tasks } : q
           ));
           
+          // Find the agent progress message
+          const agentProgressMessage = messages.find(m => m.isAgentProgress && m.agentStatus === 'running');
+          
+          if (agentProgressMessage && agentProgressMessage.agentSteps) {
+            const updatedSteps = [...agentProgressMessage.agentSteps];
+            
+            // Update steps based on task progress
+            const processingTasks = data.tasks.filter((t: AgentTask) => t.status === 'processing');
+            const completedTasks = data.tasks.filter((t: AgentTask) => t.status === 'completed');
+            const failedTasks = data.tasks.filter((t: AgentTask) => t.status === 'failed');
+            
+            // Update step 2 (document analysis)
+            if (processingTasks.length > 0 || completedTasks.length > 0) {
+              updatedSteps[1] = {
+                ...updatedSteps[1],
+                status: processingTasks.length > 0 ? 'running' : 'completed',
+                details: `Processing ${processingTasks.length} documents, ${completedTasks.length} completed`,
+                endTime: processingTasks.length === 0 ? new Date() : undefined
+              };
+            }
+            
+            // Update step 3 (AI processing)
+            if (completedTasks.length > 0) {
+              updatedSteps[2] = {
+                ...updatedSteps[2],
+                status: 'running',
+                startTime: updatedSteps[2].startTime || new Date(),
+                details: `AI processing ${completedTasks.length} documents`
+              };
+            }
+            
+            // Update step 4 (generating article)
+            if (completedTasks.length > data.tasks.length / 2) {
+              updatedSteps[3] = {
+                ...updatedSteps[3],
+                status: 'running',
+                startTime: updatedSteps[3].startTime || new Date(),
+                details: 'Generating research article'
+              };
+            }
+            
+            // Update progress
+            await updateAgentProgress(agentProgressMessage.id, updatedSteps, 'running');
+          }
+          
           // Check if all tasks are completed
           const allCompleted = data.tasks.every((t: AgentTask) => t.status === 'completed');
           const anyFailed = data.tasks.some((t: AgentTask) => t.status === 'failed');
@@ -527,16 +703,24 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
           if (allCompleted || anyFailed) {
             clearInterval(interval);
             
+            // Complete all remaining steps
+            if (agentProgressMessage && agentProgressMessage.agentSteps) {
+              const finalSteps = agentProgressMessage.agentSteps.map((step, index) => ({
+                ...step,
+                status: anyFailed && index >= 2 ? 'failed' as const : 'completed' as const,
+                endTime: step.endTime || new Date(),
+                details: index === 4 ? (anyFailed ? 'Processing failed' : 'Results ready') : step.details
+              }));
+              
+              await updateAgentProgress(agentProgressMessage.id, finalSteps, anyFailed ? 'failed' : 'completed');
+            }
+            
             // Add completion message
             const completionMessage: Message = {
               id: Date.now().toString(),
               content: anyFailed 
                 ? `❌ Agent processing completed with some failures. Check the queue for details.`
-                : `✅ Agent processing completed successfully! ${
-                    selectedAgentType === 'indices' ? 'Check the Analysis tab for new indices.' : 
-                    selectedAgentType === 'change_statement' ? 'Check the Analysis tab for change analysis results.' :
-                    'Check the results below.'
-                  }`,
+                : `✅ Agent processing completed successfully! Check the Summaries tab for new research articles.`,
               isUser: false,
               timestamp: new Date()
             };
@@ -629,6 +813,55 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
                     }`}
                   >
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    
+                    {/* Agent Progress Steps */}
+                    {message.isAgentProgress && message.agentSteps && (
+                      <div className="mt-3 space-y-2">
+                        {message.agentSteps.map((step, index) => (
+                          <div
+                            key={step.id}
+                            className={`flex items-center gap-2 p-2 rounded border ${
+                              step.status === 'completed' ? 'bg-green-50 border-green-200' :
+                              step.status === 'running' ? 'bg-blue-50 border-blue-200' :
+                              step.status === 'failed' ? 'bg-red-50 border-red-200' :
+                              'bg-gray-50 border-gray-200'
+                            }`}
+                          >
+                            <div className="flex-shrink-0">
+                              {step.status === 'completed' && (
+                                <CheckCircle className="w-4 h-4 text-green-500" />
+                              )}
+                              {step.status === 'running' && (
+                                <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+                              )}
+                              {step.status === 'failed' && (
+                                <AlertCircle className="w-4 h-4 text-red-500" />
+                              )}
+                              {step.status === 'pending' && (
+                                <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">{step.description}</span>
+                                {step.status === 'running' && (
+                                  <span className="text-xs text-blue-600 font-medium">Running...</span>
+                                )}
+                                {step.status === 'completed' && step.endTime && (
+                                  <span className="text-xs text-green-600">
+                                    {new Date(step.endTime).toLocaleTimeString()}
+                                  </span>
+                                )}
+                              </div>
+                              {step.details && (
+                                <p className="text-xs text-gray-600 mt-1">{step.details}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
                     {message.mentions && message.mentions.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {message.mentions.map((mention, index) => (
@@ -659,7 +892,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       {/* Menu Bar - now two lines, more compact and wider */}
       <div className="p-2 bg-white rounded-2xl border border-slate-200 shadow-sm" style={{minHeight: 48, maxWidth: 1000, margin: '0 auto', width: '100%'}}>
         {/* Top line: Input */}
-        <div className="flex items-center mb-1 w-full">
+        <div className="flex items-center mb-1 w-full relative">
           <Input
             ref={inputRef}
             value={inputValue}
@@ -668,17 +901,22 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
             placeholder={selectedAgentType ? `Enter your query for ${
               selectedAgentType === 'indices' ? 'Indices Creation' : 
               selectedAgentType === 'change_statement' ? 'Change of Statement' : 'Unknown'
-            } agent...` : "Type your message..."}
+            } agent...` : "Type @ to mention documents..."}
             className="border-0 shadow-none focus:ring-0 focus-visible:ring-0 bg-transparent px-0 text-sm h-8 flex-1"
             style={{fontSize: '0.98rem', width: '100%'}}
             disabled={isLoading || agentLoading}
           />
           {/* Mention Suggestions */}
           {showMentions && (
-            <div className="absolute bottom-full left-0 mb-2 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-10">
-              {mentionSuggestions.map((suggestion, index) => (
+            <div className="absolute bottom-full left-0 mb-2 w-80 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
+              <div className="max-h-64 overflow-y-auto">
+                <div className="sticky top-0 bg-gray-50 px-3 py-2 text-xs text-gray-600 border-b border-gray-200">
+                  {mentionSuggestions.length} {mentionSuggestions.length === 1 ? 'document' : 'documents'} available
+                </div>
+                {mentionSuggestions.map((suggestion, index) => (
                 <div
                   key={index}
+                  data-mention-index={index}
                   className={`px-3 py-2 cursor-pointer flex items-center gap-2 ${
                     index === selectedMentionIndex ? 'bg-blue-50' : 'hover:bg-slate-50'
                   }`}
@@ -692,6 +930,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
                   <span className="text-sm">{suggestion.display}</span>
                 </div>
               ))}
+              </div>
             </div>
           )}
         </div>
