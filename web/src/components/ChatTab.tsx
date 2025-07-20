@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Bot, User, AtSign, FileText, Plus, Sparkles, ChevronDown, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Send, Bot, User, AtSign, FileText, Plus, Sparkles, ChevronDown, Loader2 } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -42,19 +42,9 @@ interface Message {
   isUser: boolean;
   timestamp: Date;
   mentions?: string[];
-  isAgentProgress?: boolean;
-  agentSteps?: AgentStep[];
-  agentStatus?: 'running' | 'completed' | 'failed';
 }
 
-interface AgentStep {
-  id: string;
-  description: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  startTime?: Date;
-  endTime?: Date;
-  details?: string;
-}
+// Removed AgentStep interface - no longer needed
 
 interface ChatSession {
   id: string;
@@ -88,6 +78,8 @@ interface AgentQueue {
 }
 
 const API_BASE_URL = getApiBaseUrl();
+
+// Removed complex agent workflow helpers
 
 const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -373,10 +365,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
             content: message.content,
             isUser: message.isUser,
             timestamp: message.timestamp,
-            mentions: message.mentions,
-            isAgentProgress: message.isAgentProgress,
-            agentSteps: message.agentSteps,
-            agentStatus: message.agentStatus
+            mentions: message.mentions
           }
         }),
       });
@@ -385,32 +374,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
     }
   };
 
-  const updateAgentProgress = async (messageId: string, newSteps: AgentStep[], status: 'running' | 'completed' | 'failed') => {
-    // Update local state
-    setMessages(prev => prev.map(msg => 
-      msg.id === messageId ? {
-        ...msg,
-        agentSteps: newSteps,
-        agentStatus: status
-      } : msg
-    ));
-
-    // Save to database
-    try {
-      await fetch(`${API_BASE_URL}/chat/messages/${messageId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          agentSteps: newSteps,
-          agentStatus: status
-        }),
-      });
-    } catch (error) {
-      console.error('Error updating agent progress:', error);
-    }
-  };
+  // Removed updateAgentProgress function - no longer needed
 
   const extractMentions = (content: string): string[] => {
     const mentions: string[] = [];
@@ -552,39 +516,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
 
       const data = await response.json();
       
-      // Create initial agent steps
-      const initialSteps: AgentStep[] = [
-        {
-          id: '1',
-          description: 'Initializing agent',
-          status: 'completed',
-          startTime: new Date(),
-          endTime: new Date()
-        },
-        {
-          id: '2',
-          description: 'Analyzing uploaded documents',
-          status: 'running',
-          startTime: new Date()
-        },
-        {
-          id: '3',
-          description: 'Processing with AI',
-          status: 'pending'
-        },
-        {
-          id: '4',
-          description: 'Generating research article',
-          status: 'pending'
-        },
-        {
-          id: '5',
-          description: 'Finalizing results',
-          status: 'pending'
-        }
-      ];
-      
-      // Add agent message to chat with progress tracking
+      // Add simple agent message to chat
       const agentMessage: Message = {
         id: Date.now().toString(),
         content: `🤖 Started ${
@@ -592,10 +524,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
           selectedAgentType === 'change_statement' ? 'Change of Statement' : 'Unknown'
         } agent with query: "${query}"`,
         isUser: false,
-        timestamp: new Date(),
-        isAgentProgress: true,
-        agentSteps: initialSteps,
-        agentStatus: 'running'
+        timestamp: new Date()
       };
       
       setMessages(prev => [...prev, agentMessage]);
@@ -616,8 +545,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
       // Reset agent type
       setSelectedAgentType(null);
       
-      // Start monitoring the queue
-      monitorAgentQueue(data.queueKey);
+      // No need to monitor queue for progress display
       
     } catch (error) {
       console.error('Agent initiation error:', error);
@@ -636,108 +564,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
     }
   };
 
-  const monitorAgentQueue = async (queueKey: string) => {
-    let stepIndex = 2; // Start from step 2 (document analysis)
-    
-    // Poll the queue every 2 seconds
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/agent/queue/${queueKey}`);
-        if (response.ok) {
-          const data = await response.json();
-          
-          // Update queue in state
-          setAgentQueues(prev => prev.map(q => 
-            q.queueKey === queueKey ? { ...q, tasks: data.tasks } : q
-          ));
-          
-          // Find the agent progress message
-          const agentProgressMessage = messages.find(m => m.isAgentProgress && m.agentStatus === 'running');
-          
-          if (agentProgressMessage && agentProgressMessage.agentSteps) {
-            const updatedSteps = [...agentProgressMessage.agentSteps];
-            
-            // Update steps based on task progress
-            const processingTasks = data.tasks.filter((t: AgentTask) => t.status === 'processing');
-            const completedTasks = data.tasks.filter((t: AgentTask) => t.status === 'completed');
-            const failedTasks = data.tasks.filter((t: AgentTask) => t.status === 'failed');
-            
-            // Update step 2 (document analysis)
-            if (processingTasks.length > 0 || completedTasks.length > 0) {
-              updatedSteps[1] = {
-                ...updatedSteps[1],
-                status: processingTasks.length > 0 ? 'running' : 'completed',
-                details: `Processing ${processingTasks.length} documents, ${completedTasks.length} completed`,
-                endTime: processingTasks.length === 0 ? new Date() : undefined
-              };
-            }
-            
-            // Update step 3 (AI processing)
-            if (completedTasks.length > 0) {
-              updatedSteps[2] = {
-                ...updatedSteps[2],
-                status: 'running',
-                startTime: updatedSteps[2].startTime || new Date(),
-                details: `AI processing ${completedTasks.length} documents`
-              };
-            }
-            
-            // Update step 4 (generating article)
-            if (completedTasks.length > data.tasks.length / 2) {
-              updatedSteps[3] = {
-                ...updatedSteps[3],
-                status: 'running',
-                startTime: updatedSteps[3].startTime || new Date(),
-                details: 'Generating research article'
-              };
-            }
-            
-            // Update progress
-            await updateAgentProgress(agentProgressMessage.id, updatedSteps, 'running');
-          }
-          
-          // Check if all tasks are completed
-          const allCompleted = data.tasks.every((t: AgentTask) => t.status === 'completed');
-          const anyFailed = data.tasks.some((t: AgentTask) => t.status === 'failed');
-          
-          if (allCompleted || anyFailed) {
-            clearInterval(interval);
-            
-            // Complete all remaining steps
-            if (agentProgressMessage && agentProgressMessage.agentSteps) {
-              const finalSteps = agentProgressMessage.agentSteps.map((step, index) => ({
-                ...step,
-                status: anyFailed && index >= 2 ? 'failed' as const : 'completed' as const,
-                endTime: step.endTime || new Date(),
-                details: index === 4 ? (anyFailed ? 'Processing failed' : 'Results ready') : step.details
-              }));
-              
-              await updateAgentProgress(agentProgressMessage.id, finalSteps, anyFailed ? 'failed' : 'completed');
-            }
-            
-            // Add completion message
-            const completionMessage: Message = {
-              id: Date.now().toString(),
-              content: anyFailed 
-                ? `❌ Agent processing completed with some failures. Check the queue for details.`
-                : `✅ Agent processing completed successfully! Check the Summaries tab for new research articles.`,
-              isUser: false,
-              timestamp: new Date()
-            };
-            
-            setMessages(prev => [...prev, completionMessage]);
-            
-            // If indices agent, refresh tasks to trigger AnalysisTab update
-            if (selectedAgentType === 'indices') {
-              fetchTasks();
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error monitoring agent queue:', error);
-      }
-    }, 2000);
-  };
+  // Removed complex agent monitoring - agents now run independently
 
   const processNextTask = async (queueKey: string) => {
     try {
@@ -763,20 +590,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
     }
   };
 
-  const getAgentStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'processing':
-        return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
-      case 'failed':
-        return <AlertCircle className="w-4 h-4 text-red-500" />;
-      case 'pending':
-        return <div className="w-4 h-4 bg-yellow-500 rounded-full" />;
-      default:
-        return <div className="w-4 h-4 bg-gray-400 rounded-full" />;
-    }
-  };
+  // Removed getAgentStatusIcon function - no longer needed
 
   return (
     <div className="h-[calc(100vh-200px)] flex flex-col p-4">
@@ -814,53 +628,7 @@ const ChatTab = ({ uploadedFiles }: ChatTabProps) => {
                   >
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                     
-                    {/* Agent Progress Steps */}
-                    {message.isAgentProgress && message.agentSteps && (
-                      <div className="mt-3 space-y-2">
-                        {message.agentSteps.map((step, index) => (
-                          <div
-                            key={step.id}
-                            className={`flex items-center gap-2 p-2 rounded border ${
-                              step.status === 'completed' ? 'bg-green-50 border-green-200' :
-                              step.status === 'running' ? 'bg-blue-50 border-blue-200' :
-                              step.status === 'failed' ? 'bg-red-50 border-red-200' :
-                              'bg-gray-50 border-gray-200'
-                            }`}
-                          >
-                            <div className="flex-shrink-0">
-                              {step.status === 'completed' && (
-                                <CheckCircle className="w-4 h-4 text-green-500" />
-                              )}
-                              {step.status === 'running' && (
-                                <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
-                              )}
-                              {step.status === 'failed' && (
-                                <AlertCircle className="w-4 h-4 text-red-500" />
-                              )}
-                              {step.status === 'pending' && (
-                                <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium">{step.description}</span>
-                                {step.status === 'running' && (
-                                  <span className="text-xs text-blue-600 font-medium">Running...</span>
-                                )}
-                                {step.status === 'completed' && step.endTime && (
-                                  <span className="text-xs text-green-600">
-                                    {new Date(step.endTime).toLocaleTimeString()}
-                                  </span>
-                                )}
-                              </div>
-                              {step.details && (
-                                <p className="text-xs text-gray-600 mt-1">{step.details}</p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    {/* Removed complex agent progress display */}
                     
                     {message.mentions && message.mentions.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
